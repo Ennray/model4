@@ -454,6 +454,28 @@ def calculate_meeting_time(uav_points, base, enemy_center, enemy_speed, uav_spee
     return results_sorted
 
 
+
+#根据预计交会时间，自动为每架无人机分配转弯策略
+def assign_turning_strategy(results_sorted):
+
+
+    # 提取所有交会时间
+    t_meet_list = [r['t_meet'] for r in results_sorted]
+
+    # 转弯的阈值暂定设为中位数
+    median_time = np.median(t_meet_list)
+
+    # 更新每架无人机的策略
+    for r in results_sorted:
+        if r['t_meet'] < median_time:
+            r['turn_strategy'] = "延迟转弯"
+        else:
+            r['turn_strategy'] = "先转弯"
+
+    return results_sorted
+
+
+
 if __name__ == "__main__":
     #敌机数据
     enemy_geo = [
@@ -784,6 +806,7 @@ if __name__ == "__main__":
 
 
     results = calculate_meeting_time(second_points, base, enemy_center, enemy_speed, uavs_speed[0])
-    for r in results:
-        print(f"无人机 {r['uav_id']} - 距离: {r['distance']:.2f} m, 预计交会时间: {r['t_meet']:.2f} s")
-
+    results_celue = assign_turning_strategy(results)
+    for r in results_celue:
+        print(
+            f"无人机 {r['uav_id']} - 距离: {r['distance']:.2f} m, 预计交会时间: {r['t_meet']:.2f} s, 策略: {r['turn_strategy']}")
