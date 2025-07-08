@@ -406,6 +406,54 @@ def first_turning_position(turn_points, second_uavs, ecenter, base_point, e_geo,
     return uavstr
 
 
+#计算每架无人机与敌群中心的直线距离和预计交会时间
+def calculate_meeting_time(uav_points, base, enemy_center, enemy_speed, uav_speed,):
+    #uav_points:列表，每个元素是[纬度、经度、高度]，即无人机当前位置； enemy_center:敌群中心位置；enemy_speed：敌群速度；uav_speed：无人机当前速度
+    #converter:对象
+
+    A_lat, A_lon, A_alt = GeodeticConverter.decimal_dms_to_degrees(base)
+    B_lat, B_lon, B_alt = GeodeticConverter.decimal_dms_to_degrees(enemy_center)
+    converter = GeodeticConverter.GeodeticToLocalConverter(A_lat, A_lon, A_alt, B_lat, B_lon, B_alt)
+
+    results = []
+
+    # 敌群中心点经纬度转直角坐标系
+    e_lat, e_lon, e_alt = GeodeticConverter.decimal_dms_to_degrees(enemy_center)
+    enemy_local = converter.geodetic_to_local(e_lat, e_lon, e_alt)
+    x_e, y_e, z_e = enemy_local
+
+    # 遍历所有无人机
+    for i, uav_point in enumerate(uav_points):
+        u_lat, u_lon, u_alt = GeodeticConverter.decimal_dms_to_degrees(uav_point)
+        uav_local = converter.geodetic_to_local(u_lat, u_lon, u_alt)
+        x_u, y_u, z_u = uav_local
+
+        # 计算直线距离
+        d0 = math.sqrt((x_u - x_e) ** 2 + (y_u - y_e) ** 2 + (z_u - z_e) ** 2)
+
+        # 粗略估算相对速度（此处默认对头或同向可再细化）
+        # 简单版先用相对速度绝对值
+        v_rel = abs(enemy_speed - uav_speed)
+
+        # 避免除零错误
+        if v_rel == 0:
+            t_meet = float('inf')
+        else:
+            t_meet = d0 / v_rel
+
+        # 保存结果
+        results.append({
+            'uav_id': i,
+            'distance': d0,
+            't_meet': t_meet
+        })
+
+    # 根据交会时间从小到大排序（可选）
+    results_sorted = sorted(results, key=lambda x: x['t_meet'])
+
+    return results_sorted
+
+
 if __name__ == "__main__":
     #敌机数据
     enemy_geo = [
@@ -630,8 +678,7 @@ if __name__ == "__main__":
             "-455.60"
         ]
     ]
-    #敌机群中心位置
-    enemy_center = ["28:11:34.95W", "10:30:35.24N", "55.0"]
+
     #第二波次无人机初始点
     second_points = [
         [
@@ -722,6 +769,8 @@ if __name__ == "__main__":
     ]
     #第一波次无人机基点
     base = ["28:30:34.95W", "10:11:35.24N", "55.0"]
+    # 敌机群中心位置
+    enemy_center = ["28:11:34.95W", "10:30:35.24N", "55.0"]
     enemy_speed = 240
     uavs_speed = [180, 80, 80, 300, 200]
     turn_time = 15
@@ -731,4 +780,10 @@ if __name__ == "__main__":
     y_gap = 200
     print(second_turning_position(enemy_geo, enemy_center, second_points, base, enemy_speed, uavs_speed,
                                   turn_time, distance_follow, detection_size, height, y_gap))
+
+
+
+    results = calculate_meeting_time(second_points, base, enemy_center, enemy_speed, uavs_speed[0])
+    for r in results:
+        print(f"无人机 {r['uav_id']} - 距离: {r['distance']:.2f} m, 预计交会时间: {r['t_meet']:.2f} s")
 
