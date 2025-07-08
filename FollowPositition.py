@@ -100,7 +100,7 @@ def calculate_distance_same(total_dist, v_start, v_max, v_end, acc, dec, v_enemy
     #     return "No solution found"
 
 
-#根据敌机的速度和位置，计算无人机最终需要多移动
+#根据敌机的速度和位置，计算无人机最终需要多移动多少距离来完成追击、转弯到达目标点
 def calculate_move_dist(enemy_speed, uavs_speed, turn_time, distance_follow, distance_enemy_base):
     uavs_speed_now = uavs_speed[0]
     uavs_speed_acc = uavs_speed[1]
@@ -109,13 +109,13 @@ def calculate_move_dist(enemy_speed, uavs_speed, turn_time, distance_follow, dis
     uavs_speed_turn = uavs_speed[4]
 
     if enemy_speed * turn_time > distance_enemy_base:
-        # 先原点转弯，需加速追赶距离，最后减速过顶敌群
-        distance = enemy_speed * turn_time - distance_enemy_base - distance_follow  # 追击距离
+        # 先原点转弯，需加速追赶距离，最后减速过顶敌群（迎面情况我方飞过敌方）
+        distance = enemy_speed * turn_time - distance_enemy_base - distance_follow  # 追击距离=敌机跑过距离-无人机初始到基线距离-伴飞水平距离
         move_t = calculate_distance_same(distance, uavs_speed_turn, uavs_speed_max,
                                          enemy_speed, uavs_speed_acc, uavs_speed_dec, enemy_speed)
         uavs_speed_now = enemy_speed
     else:
-        # 先迎向加速，再减速转弯，抵近敌群
+        # 先迎向加速，再减速转弯，抵近敌群（迎面情况我方还未接近敌方）
         distance_turnbegin = distance_enemy_base - enemy_speed * turn_time + distance_follow  # 相向行驶距离
         move_t = calculate_distances_opposite(distance_turnbegin, uavs_speed_now, uavs_speed_max,
                                               uavs_speed_turn, uavs_speed_acc, uavs_speed_dec, enemy_speed)
@@ -126,6 +126,7 @@ def calculate_move_dist(enemy_speed, uavs_speed, turn_time, distance_follow, dis
     return move_dist
 
 
+#在三维点集中，找出边界的最大值最小值
 def find_edge_points(data):
     # 初始化边界值
     min_x = float('inf')
@@ -146,7 +147,7 @@ def find_edge_points(data):
         min_z = min(min_z, z)
         max_z = max(max_z, z)
 
-    # 确定边缘点
+    # 确定边缘点（哪些点在边缘上）如果某个点的坐标是最小最大值，那就说明在边界点上
     edge_points = []
     for point in data:
         x, y, z = point[0]
@@ -156,10 +157,12 @@ def find_edge_points(data):
     return min_x, max_x, min_y, max_y, min_z, max_z
 
 
+#计算第二波次无人机在跟随敌机运行后，如何根据敌机位置和队形，确定每个无人机转弯后的位置
 def second_turning_position(enemy_geo, enemy_center, second_points, base, enemy_speed, uavs_speed, turn_time, distance_follow,
                  detection_size, height, y_gap):
     # enemy_geo敌机位置[敌机1，敌机2..]，second_points第二波次位置，enemy_center敌机中心位置，base第一波次中心位置，enemy_center - base表示敌机飞行方向，enemy_speed敌机速度
     # uavs_speed侦察机速度[,,]，turn_time侦察机转弯时间，distance_follow伴随侦察水平间距，detection_size伴随侦察探测区域[x,z]，height伴随侦察高度差，y_gap敌机前后间距
+    #把经纬度转换为局部坐标系
     A_lat, A_lon, A_alt = GeodeticConverter.decimal_dms_to_degrees(base)
     B_lat, B_lon, B_alt = GeodeticConverter.decimal_dms_to_degrees(enemy_center)
     # 创建坐标系转换器
@@ -232,9 +235,11 @@ def second_turning_position(enemy_geo, enemy_center, second_points, base, enemy_
     #         move_t = move_dist / enemy_speed
     # 最大移动时间
     enemy_center_local[1] - seconds_sorted[0][1]
+    #转弯时间+对头飞行所需的时间（保证无人机赶到前面）
     move_t = turn_time + calculate_distances_opposite(enemy_center_local[1] - seconds_sorted[0][1], uavs_speed[0],
                                                       uavs_speed[3], uavs_speed[4], uavs_speed[1], uavs_speed[2],
                                                       enemy_speed)
+    #敌机在无人机完成转弯、飞行后的位置
     max_p = enemy_center_local[1] - (enemy_speed + uavs_speed[0]) * move_t  # 第二波次转弯完成，敌机飞行到达的位置
 
     i = 0
@@ -247,7 +252,7 @@ def second_turning_position(enemy_geo, enemy_center, second_points, base, enemy_
             n = n + 1  # 第n圈
             quantity += tmp - 8 * n
 
-        casei = i % 4
+        casei = i % 4 #确定无人机排在哪条边缘上（上下左右）
         num = math.floor(i/4)
         seconds_sorted[i][2] = 1  # 表示无人机已转弯
         if casei == 0:  # 上边缘
@@ -297,27 +302,31 @@ def second_turning_position(enemy_geo, enemy_center, second_points, base, enemy_
     print(i)
 
     uavstr = []
+    #转回经纬度
     for uav in seconds_sorted:
         result = converter.local_to_geodetic_dms(uav[0])
         uavstr.append(result)
     return uavstr
 
-
+#根据敌机速度，计算无人机适当跟飞速度范围
 def adjust_speed(speed, appropriate_relative_speed):
     # 追击航速调整，speed敌机速度[敌机A，敌机B...],appropriate_relative_speed:根据光电探测图像质量确定的相对速度[最小值，最大值]
     enemy_cluster_speed = velocity_recong.enemies_speed_calculate(speed)
     # 计算A的速度矢量的模
     v_mod = math.sqrt(enemy_cluster_speed[0] ** 2 + enemy_cluster_speed[1] ** 2 + enemy_cluster_speed[2] ** 2)
 
+    #计算无人机最小跟随速度
     vmin_base_mod = v_mod + appropriate_relative_speed[0]
     vmin_base = (v_mod / vmin_base_mod) * enemy_cluster_speed
 
-    vmax_base_mod = v_mod + appropriate_relative_speed[0]
+    #计算无人机最大跟随速度
+    vmax_base_mod = v_mod + appropriate_relative_speed[1]
     vmax_base = (v_mod / vmax_base_mod) * enemy_cluster_speed
     appropriate_speed_range = [vmin_base, vmax_base]
     return appropriate_speed_range
 
 
+#计算两组无人机之间的相对位置差
 def relative_posi(first_uavs, second_uavs):
     relative_position=[]
     for first_uav in first_uavs:
@@ -326,9 +335,10 @@ def relative_posi(first_uavs, second_uavs):
     return relative_position
 
 
+#计算第一波次无人机完成转弯动作后，如何根据敌机群当前分布以及第二波无人机数量，在外围环绕敌机群形成新的占位布局（封锁圈或侦查圈）
 def first_turning_position(turn_points, second_uavs, ecenter, base_point, e_geo, espeed, detect_size, y_gap,
                            height, uav_speed, follow_distance):
-    # e_geo敌机位置[敌机1，敌机2..]，ecenter敌机中心位置，second_uavs第二波次位置，base_point第一波次中心位置，ecenter - base_point表示敌机飞行方向,espeed敌机速度
+    # e_geo敌机位置[敌机1，敌机2..]，ecenter敌机中心位置，second_uavs第二波次位置，base_point第一波次中心位置，ecenter敌机群中心位置 - base_point表示敌机飞行方向,espeed敌机速度
     # uav_speed侦察机速度[,,]，turn_time侦察机转弯时间，follow_distance伴随侦察水平间距，detect_size伴随侦察探测区域[x,z]，height伴随侦察高度差，y_gap敌机前后间距
     A_lat, A_lon, A_alt = GeodeticConverter.decimal_dms_to_degrees(base_point)
     B_lat, B_lon, B_alt = GeodeticConverter.decimal_dms_to_degrees(ecenter)
@@ -352,12 +362,13 @@ def first_turning_position(turn_points, second_uavs, ecenter, base_point, e_geo,
         enemy = converter.geodetic_to_local(lat, lon, alt)
         enemys.append([enemy, i, 0])
         i += 1
+    #计算敌机群边界（包围圈）
     min_x, max_x, min_y, max_y, min_z, max_z = find_edge_points(enemys)
 
     i = 0
     n = 0
-    second_uavs_len = len(second_uavs)
-    quantity = (max_x - min_x) / detect_size[0] * 2 + (max_y - min_y) / detect_size[1] * 2 - 4
+    second_uavs_len = len(second_uavs)#第二波无人机数量
+    quantity = (max_x - min_x) / detect_size[0] * 2 + (max_y - min_y) / detect_size[1] * 2 - 4 #边缘一圈最多可容纳的无人机数
     tmp = quantity
     while i in range(len(turn_uavs)):
         # 无人机转弯，由外圈向内圈占位。
@@ -396,6 +407,7 @@ def first_turning_position(turn_points, second_uavs, ecenter, base_point, e_geo,
 
 
 if __name__ == "__main__":
+    #敌机数据
     enemy_geo = [
         [
             "28:11:37.48W",
@@ -618,7 +630,9 @@ if __name__ == "__main__":
             "-455.60"
         ]
     ]
+    #敌机群中心位置
     enemy_center = ["28:11:34.95W", "10:30:35.24N", "55.0"]
+    #第二波次无人机初始点
     second_points = [
         [
             "28:30:49.77W",
@@ -706,12 +720,15 @@ if __name__ == "__main__":
             "-778.45"
         ]
     ]
+    #第一波次无人机基点
     base = ["28:30:34.95W", "10:11:35.24N", "55.0"]
     enemy_speed = 240
     uavs_speed = [180, 80, 80, 300, 200]
     turn_time = 15
     distance_follow = 50
     detection_size = [200, 300]
+    height = 500
+    y_gap = 200
     print(second_turning_position(enemy_geo, enemy_center, second_points, base, enemy_speed, uavs_speed,
-                                  turn_time, distance_follow, detection_size,))
+                                  turn_time, distance_follow, detection_size, height, y_gap))
 
