@@ -475,6 +475,144 @@ def assign_turning_strategy(results_sorted):
     return results_sorted
 
 
+#根据敌机位置、无人机初始点及参数，计算每架无人机转弯后最终占位
+def get_final_positions(enemy_geo, enemy_center, second_points, base, enemy_speed, uavs_speed,
+                        turn_time, distance_follow, detection_size, height, y_gap, converter):
+
+
+    # 调用占位函数，得到所有无人机的新经纬度点
+    final_positions_geo = second_turning_position(enemy_geo, enemy_center, second_points, base,
+                                                  enemy_speed, uavs_speed, turn_time, distance_follow,
+                                                  detection_size, height, y_gap)
+
+    final_positions = []
+
+    # 遍历转换为局部坐标
+    for i, geo_point in enumerate(final_positions_geo):
+        lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(geo_point)
+        local_pos = converter.geodetic_to_local(lat, lon, alt)
+
+        final_positions.append({
+            'uav_id': i,
+            'final_geo': geo_point,
+            'final_local': local_pos
+        })
+
+    return final_positions
+
+
+#生成一条从起点到终点的完整轨迹（一秒一个点），并记录每个时间步的速度、位置
+def generate_trajectory(start_point, end_point, uav_speed_params, dt=1.0):
+    #uava_speed_params是一个包含速度参数的字典（起始速度、最大速度、终点速度、加减速率）
+    v_start = uav_speed_params['v_start']
+    v_max = uav_speed_params['v_max']
+    v_end = uav_speed_params['v_end']
+    acc = uav_speed_params['acc']
+    dec = uav_speed_params['dec']
+
+    # 计算总位移向量和距离
+    diff_vec = np.array(end_point) - np.array(start_point) #起点到终点的三维向量
+    total_dist = np.linalg.norm(diff_vec) #三维向量获得值
+
+    # 计算飞行方向
+    direction = diff_vec / total_dist #单位方向向量，即单位时间内的位移
+
+    # 计算加速距离 & 时间
+    t_acc = (v_max - v_start) / acc if acc > 0 else 0
+    d_acc = v_start * t_acc + 0.5 * acc * t_acc**2
+
+    # 减速距离 & 时间
+    t_dec = (v_max - v_end) / dec if dec > 0 else 0
+    d_dec = v_max * t_dec - 0.5 * dec * t_dec**2
+
+    # 匀速阶段距离 & 时间
+    d_cruise = total_dist - d_acc - d_dec
+    if d_cruise < 0:
+        # 如果没有匀速阶段，重新计算 v_peak 没有匀速阶段，就只能先加速到某个峰值然后立刻减速
+        v_peak = np.sqrt((2 * dec * total_dist + v_end**2 * acc / dec + v_start**2) / (1 + acc / dec))
+        v_max = min(v_peak, v_max)
+        t_acc = (v_max - v_start) / acc if acc > 0 else 0
+        d_acc = v_start * t_acc + 0.5 * acc * t_acc**2
+        t_dec = (v_max - v_end) / dec if dec > 0 else 0
+        d_dec = v_max * t_dec - 0.5 * dec * t_dec**2
+        d_cruise = 0
+
+    t_cruise = d_cruise / v_max if v_max > 0 else 0
+
+    # 总时间
+    total_time = t_acc + t_cruise + t_dec
+
+    #循环逐步生成轨迹点
+    traj_points = []
+    s = 0  # 累计位移
+    v = v_start
+    t = 0
+
+    while s < total_dist:
+        if t < t_acc:
+            v = v_start + acc * t
+        elif t < t_acc + t_cruise:
+            v = v_max
+        else:
+            v = v_max - dec * (t - t_acc - t_cruise)
+            if v < v_end:
+                v = v_end
+
+        ds = v * dt
+        if s + ds > total_dist:
+            ds = total_dist - s
+
+        # 当前位置
+        pos = np.array(start_point) + direction * (s + ds)
+
+        traj_points.append({
+            't': round(t, 2),
+            'pos': pos.tolist(),
+            'v': round(v, 2)
+        })
+
+        s += ds
+        t += dt
+
+        if t > total_time + 10:  # 防止无限循环
+            break
+
+    return traj_points
+
+
+#逐时间检查所有无人机轨迹之间的距离，判断是否小于安全阈值，小于则标记
+def check_trajectory_conflict(all_traj, safe_distance=50):
+
+    conflict_list = []
+
+    # 假设每架无人机的轨迹时间步数一样
+    time_steps = len(next(iter(all_traj.values())))
+
+    #外层，按照时间步逐步检查
+    for t_idx in range(time_steps):  #内层：两两无人机组合比较
+        ids = list(all_traj.keys())
+        for i in range(len(ids)):
+            for j in range(i + 1, len(ids)): #获取两架无人机当前位置
+                uav1_id = ids[i]
+                uav2_id = ids[j]
+                pos1 = all_traj[uav1_id][t_idx]['pos']
+                pos2 = all_traj[uav2_id][t_idx]['pos']
+
+                # 计算三维距离
+                dist = math.sqrt(sum([(a - b) ** 2 for a, b in zip(pos1, pos2)]))
+                if dist < safe_distance:
+                    conflict_list.append({
+                        't': all_traj[uav1_id][t_idx]['t'],
+                        'uav1': uav1_id,
+                        'uav2': uav2_id,
+                        'distance': round(dist, 2)
+                    }) #如果冲突，则记录时间t，两个无人机ID，以及实际距离
+
+    return conflict_list
+
+
+
+
 
 if __name__ == "__main__":
     #敌机数据
