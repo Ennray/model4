@@ -472,11 +472,6 @@ def update_positions_geo(enemy_positions_geo, uav_positions_geo,
                          enemy_speed, uav_speeds, converter, dt=1.0):
     #敌群经纬度，我方经纬度，敌群中心，我方中心，敌群速度，我方速度，对象，时间段
 
-    # 这里打印，最直接、最原始
-    print("=== 开始 update_positions_geo ===")
-    print("enemy_center_geo:", enemy_center_geo)
-    print("our_center_geo:", our_center_geo)
-
     # 敌群中心经纬度转坐标轴
     e_lat, e_lon, e_alt = GeodeticConverter.decimal_dms_to_degrees(enemy_center_geo)
     enemy_center_local = converter.geodetic_to_local(e_lat, e_lon, e_alt)
@@ -485,10 +480,6 @@ def update_positions_geo(enemy_positions_geo, uav_positions_geo,
     # 我方中心经纬度转坐标轴
     o_lat, o_lon, o_alt = GeodeticConverter.decimal_dms_to_degrees(our_center_geo)
     our_center_local = converter.geodetic_to_local(o_lat, o_lon, o_alt)
-
-
-    print("Parsed enemy_center_geo altitude:", e_alt)
-    print("Parsed our_center_geo altitude:", o_alt)
 
     # direction = np.array(our_center_local) - np.array(enemy_center_local)
     # norm = np.linalg.norm(direction)
@@ -510,7 +501,7 @@ def update_positions_geo(enemy_positions_geo, uav_positions_geo,
         pos_local = converter.geodetic_to_local(lat, lon, alt)
 
         # 敌机沿相反方向飞
-        new_pos_local = pos_local + direction_unit * enemy_speed * dt
+        new_pos_local = pos_local - direction_unit * enemy_speed * dt
 
         # 转回经纬度
         new_geo = converter.local_to_geodetic_dms(new_pos_local)
@@ -523,7 +514,7 @@ def update_positions_geo(enemy_positions_geo, uav_positions_geo,
         pos_local = converter.geodetic_to_local(lat, lon, alt)
 
         # 我方无人机沿正方向飞
-        new_pos_local = pos_local - direction_unit * uav_speeds[idx] * dt
+        new_pos_local = pos_local + direction_unit * uav_speeds[idx] * dt
 
         # 转回经纬度
         new_geo = converter.local_to_geodetic_dms(new_pos_local)
@@ -661,9 +652,9 @@ def plot_moving_3D(enemy_positions_geo, uav_positions_geo,
     uav_speeds = [uav_speed_scalar for _ in uav_positions_geo]
 
     # 只取前三架敌机 & 前五架我方无人机（可自行调整）
-    enemy_positions_geo = enemy_positions_geo[:3]
-    uav_positions_geo = uav_positions_geo[:3]
-    uav_speeds = uav_speeds[:3]
+    enemy_positions_geo = enemy_positions_geo[:10]
+    uav_positions_geo = uav_positions_geo[:10]
+    uav_speeds = uav_speeds[:10]
 
     # 轨迹记录
     enemy_tracks = [[] for _ in range(len(enemy_positions_geo))]
@@ -683,6 +674,7 @@ def plot_moving_3D(enemy_positions_geo, uav_positions_geo,
             converter,
             dt
         )
+        print(f"敌群:{enemy_positions_geo}, 我方:{uav_positions_geo}")
 
         # 敌机局部坐标记录
         for i, geo in enumerate(enemy_positions_geo):
@@ -744,8 +736,7 @@ def plot_initial_positions_with_centers(enemy_positions_geo, uav_positions_geo,
         uav_lons.append(lon)
         uav_alts.append(alt)
 
-    enemy_center_lat, enemy_center_lon, enemy_center_alt = calculate_center(enemy_positions_geo, converter)
-    uav_center_lat, uav_center_lon, uav_center_alt = calculate_center(uav_positions_geo, converter)
+
 
 
     # 原本已知中心
@@ -1111,7 +1102,7 @@ if __name__ == "__main__":
     #第一波次无人机基点
     base = ["28:30:34.95W", "10:11:35.24N", "55.0"]
     # 敌机群中心位置
-    enemy_center = ["28:11:34.95W", "10:30:35.24N", "300.0"]
+    enemy_center = ["28:11:34.95W", "10:30:35.24N", "55.0"]
     enemy_speed = 240
     uavs_speed = [180, 80, 80, 300, 200] #当前、加速、减速、最大、转弯速度
     turn_time = 15
