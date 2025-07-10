@@ -458,6 +458,37 @@ def update_positions_geo(enemy_positions_geo, uav_positions_geo,
 
     return updated_enemy_positions, updated_uav_positions
 
+
+#对第二波次进行分类，按照与base的阈值分为随第1波次转弯以及不随第1波次转弯，而是自己按最优航迹开始转弯，记录类别
+def classify_uav_turning(uav_positions_geo, base_geo, converter, distance_threshold):
+    #我方无人机经纬度、base、对象、阈值
+
+    # 将 base 转换为局部坐标
+    base_lat, base_lon, base_alt = GeodeticConverter.decimal_dms_to_degrees(base_geo)
+    base_local = converter.geodetic_to_local(base_lat, base_lon, base_alt)
+
+    decisions = []
+
+    for idx, geo in enumerate(uav_positions_geo):
+        # 将无人机经纬度转换为局部坐标
+        lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(geo)
+        pos_local = converter.geodetic_to_local(lat, lon, alt)
+
+        # 计算到 base 的直线距离
+        dist = np.linalg.norm(np.array(pos_local) - np.array(base_local))
+
+        # 判定是否小于等于阈值
+        if dist <= distance_threshold:
+            decisions.append(1)  # 跟随第一波一起转弯
+        else:
+            decisions.append(0)  # 独立按最优航迹转弯
+
+
+        # print(f"无人机 {idx}: 距离 base = {dist:.2f} m, 判定 = {'跟随转弯' if dist <= distance_threshold else '独立转弯'}")
+
+    return decisions
+
+
 #计算每架无人机与敌群中心的直线距离和预计交会时间
 def calculate_meeting_time(uav_points, base, enemy_center, enemy_speed, uav_speed,):
     #uav_points:列表，每个元素是[纬度、经度、高度]，即无人机当前位置； enemy_center:敌群中心位置；enemy_speed：敌群速度；uav_speed：无人机当前速度
@@ -1018,6 +1049,7 @@ if __name__ == "__main__":
     height = 500
     y_gap = 200
     dt = 1
+    base_distance_threshold = 1000 #base距离阈值
     turn_distance_threshold = 500 #迎面距离阈值
     #print(second_turning_position(enemy_geo, enemy_center, second_points, base, enemy_speed, uavs_speed,
                                  # turn_time, distance_follow, detection_size, height, y_gap))
@@ -1028,6 +1060,19 @@ if __name__ == "__main__":
     converter = GeodeticConverter.GeodeticToLocalConverter(A_lat, A_lon, A_alt, B_lat, B_lon, B_alt)
 
     uav_speed = [180 for _ in second_points]
+
+
+    decision_array = classify_uav_turning(second_points, base, converter, base_distance_threshold)
+
+    # 打印结果
+    for idx, val in enumerate(decision_array):
+        if val == 1:
+            print(f"无人机 {idx}: 距离近，跟随第一波转弯 (1)")
+        else:
+            print(f"无人机 {idx}: 距离远，独立转弯 (0)")
+
+
+
     enemy_positions_geo_new, uav_positions_geo_new = update_positions_geo(enemy_geo, second_points, enemy_center, base, enemy_speed, uav_speed, converter, dt)
 
     print("敌机新位置:")
