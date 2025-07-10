@@ -529,237 +529,82 @@ def predict_cross_time(base_geo, enemy_center_geo,
     return None, base_local, enemy_local
 
 
-#计算每架无人机与敌群中心的直线距离和预计交会时间
-def calculate_meeting_time(uav_points, base, enemy_center, enemy_speed, uav_speed,):
-    #uav_points:列表，每个元素是[纬度、经度、高度]，即无人机当前位置； enemy_center:敌群中心位置；enemy_speed：敌群速度；uav_speed：无人机当前速度
-    #converter:对象
+#在预测转弯时间点获取无人机实时位置（起点）并计算转弯终点（占位位置）
+def get_uav_turning_points(enemy_positions_geo, enemy_center_geo,
+                           uav_positions_geo, base_geo,
+                           enemy_speed, uav_speed_scalar,
+                           uavs_speed_params,
+                           converter,
+                           predicted_time,
+                           turn_time, distance_follow, detection_size, height, y_gap,
+                           dt=1.0):
+    #敌群经纬度、敌群中心、我方经纬度、base位置、敌群速度、我方速度、我方速度参数列表、对象、转弯时间、无人机跟随最短距离、探测大小、高度、落差、时间片
 
-    A_lat, A_lon, A_alt = GeodeticConverter.decimal_dms_to_degrees(base)
-    B_lat, B_lon, B_alt = GeodeticConverter.decimal_dms_to_degrees(enemy_center)
-    converter = GeodeticConverter.GeodeticToLocalConverter(A_lat, A_lon, A_alt, B_lat, B_lon, B_alt)
+    # 生成无人机速度列表（每架无人机一个值180）
+    uav_speeds_list = [uav_speed_scalar for _ in uav_positions_geo]
 
-    results = []
+    # 更新次数（目前默认1秒更新一次）
+    steps = int(predicted_time / dt)
 
-    # 敌群中心点经纬度转直角坐标系
-    e_lat, e_lon, e_alt = GeodeticConverter.decimal_dms_to_degrees(enemy_center)
-    enemy_local = converter.geodetic_to_local(e_lat, e_lon, e_alt)
-    x_e, y_e, z_e = enemy_local
+    #调用敌我双方经纬度实时更新函数，获得敌我双方即将拐弯时的经纬度
+    for _ in range(steps):
+        enemy_positions_geo, uav_positions_geo = update_positions_geo(
+            enemy_positions_geo,
+            uav_positions_geo,
+            enemy_center_geo,
+            base_geo,
+            enemy_speed,
+            uav_speeds_list,
+            converter,
+            dt
+        )
 
-    # 遍历所有无人机
-    for i, uav_point in enumerate(uav_points):
-        u_lat, u_lon, u_alt = GeodeticConverter.decimal_dms_to_degrees(uav_point)
-        uav_local = converter.geodetic_to_local(u_lat, u_lon, u_alt)
-        x_u, y_u, z_u = uav_local
+    # 获取无人机起点（局部坐标）
+    uav_start_points_local = []
+    for geo in uav_positions_geo:
+        lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(geo)
+        local = converter.geodetic_to_local(lat, lon, alt)
+        uav_start_points_local.append(local)
 
-        # 计算直线距离
-        d0 = math.sqrt((x_u - x_e) ** 2 + (y_u - y_e) ** 2 + (z_u - z_e) ** 2)
+    # 调用second_turning_position计算终点（占位位置）
+    final_positions_geo = second_turning_position(
+        enemy_positions_geo,
+        enemy_center_geo,
+        uav_positions_geo,
+        base_geo,
+        enemy_speed,
+        uavs_speed_params,
+        turn_time,
+        distance_follow,
+        detection_size,
+        height,
+        y_gap
+    )
 
-        # 粗略估算相对速度（此处默认对头或同向可再细化）
-        # 简单版先用相对速度绝对值
-        v_rel = abs(enemy_speed - uav_speed)
+    # 转成局部坐标
+    uav_end_points_local = []
+    for geo in final_positions_geo:
+        lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(geo)
+        local = converter.geodetic_to_local(lat, lon, alt)
+        uav_end_points_local.append(local)
 
-        # 避免除零错误
-        if v_rel == 0:
-            t_meet = float('inf')
-        else:
-            t_meet = d0 / v_rel
-
-        # 保存结果
-        results.append({
-            'uav_id': i,
-            'distance': d0,
-            't_meet': t_meet
-        })
-
-    # 根据交会时间从小到大排序（可选）
-    results_sorted = sorted(results, key=lambda x: x['t_meet'])
-
-    return results_sorted
-
-
-
-#根据预计交会时间，自动为每架无人机分配转弯策略
-def assign_turning_strategy(results_sorted):
-
-
-    # 提取所有交会时间
-    t_meet_list = [r['t_meet'] for r in results_sorted]
-
-    # 转弯的阈值暂定设为中位数
-    median_time = np.median(t_meet_list)
-
-    # 更新每架无人机的策略
-    for r in results_sorted:
-        if r['t_meet'] < median_time:
-            r['turn_strategy'] = "延迟转弯"
-        else:
-            r['turn_strategy'] = "先转弯"
-
-    return results_sorted
+    return uav_start_points_local, uav_end_points_local
 
 
 
 
-#根据敌机位置、无人机初始点及参数，计算每架无人机转弯后最终占位
-def get_final_positions(enemy_geo, enemy_center, second_points, base, enemy_speed, uavs_speed,
-                        turn_time, distance_follow, detection_size, height, y_gap, converter):
 
 
-    # 调用占位函数，得到所有无人机的新经纬度点
-    final_positions_geo = second_turning_position(enemy_geo, enemy_center, second_points, base,
-                                                  enemy_speed, uavs_speed, turn_time, distance_follow,
-                                                  detection_size, height, y_gap)
-
-    final_positions = []
-
-    # 遍历转换为局部坐标
-    for i, geo_point in enumerate(final_positions_geo):
-        lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(geo_point)
-        local_pos = converter.geodetic_to_local(lat, lon, alt)
-
-        final_positions.append({
-            'uav_id': i,
-            'final_geo': geo_point,
-            'final_local': local_pos
-        })
-
-    return final_positions
 
 
-#生成一条从起点到终点的完整轨迹（一秒一个点），并记录每个时间步的速度、位置
-def generate_trajectory(start_point, end_point, uav_speed_params, dt=1.0):
-    #uava_speed_params是一个包含速度参数的字典（起始速度、最大速度、终点速度、加减速率）
-    v_start = uav_speed_params['v_start']
-    v_max = uav_speed_params['v_max']
-    v_end = uav_speed_params['v_end']
-    acc = uav_speed_params['acc']
-    dec = uav_speed_params['dec']
-
-    # 计算总位移向量和距离
-    diff_vec = np.array(end_point) - np.array(start_point) #起点到终点的三维向量
-    total_dist = np.linalg.norm(diff_vec) #三维向量获得值
-
-    # 计算飞行方向
-    direction = diff_vec / total_dist #单位方向向量，即单位时间内的位移
-
-    # 计算加速距离 & 时间
-    t_acc = (v_max - v_start) / acc if acc > 0 else 0
-    d_acc = v_start * t_acc + 0.5 * acc * t_acc**2
-
-    # 减速距离 & 时间
-    t_dec = (v_max - v_end) / dec if dec > 0 else 0
-    d_dec = v_max * t_dec - 0.5 * dec * t_dec**2
-
-    # 匀速阶段距离 & 时间
-    d_cruise = total_dist - d_acc - d_dec
-    if d_cruise < 0:
-        # 如果没有匀速阶段，重新计算 v_peak 没有匀速阶段，就只能先加速到某个峰值然后立刻减速
-        v_peak = np.sqrt((2 * dec * total_dist + v_end**2 * acc / dec + v_start**2) / (1 + acc / dec))
-        v_max = min(v_peak, v_max)
-        t_acc = (v_max - v_start) / acc if acc > 0 else 0
-        d_acc = v_start * t_acc + 0.5 * acc * t_acc**2
-        t_dec = (v_max - v_end) / dec if dec > 0 else 0
-        d_dec = v_max * t_dec - 0.5 * dec * t_dec**2
-        d_cruise = 0
-
-    t_cruise = d_cruise / v_max if v_max > 0 else 0
-
-    # 总时间
-    total_time = t_acc + t_cruise + t_dec
-
-    #循环逐步生成轨迹点
-    traj_points = []
-    s = 0  # 累计位移
-    v = v_start
-    t = 0
-
-    while s < total_dist:
-        if t < t_acc:
-            v = v_start + acc * t
-        elif t < t_acc + t_cruise:
-            v = v_max
-        else:
-            v = v_max - dec * (t - t_acc - t_cruise)
-            if v < v_end:
-                v = v_end
-
-        ds = v * dt
-        if s + ds > total_dist:
-            ds = total_dist - s
-
-        # 当前位置
-        pos = np.array(start_point) + direction * (s + ds)
-
-        traj_points.append({
-            't': round(t, 2),
-            'pos': pos.tolist(),
-            'v': round(v, 2)
-        })
-
-        s += ds
-        t += dt
-
-        if t > total_time + 10:  # 防止无限循环
-            break
-
-    return traj_points
 
 
-#逐时间检查所有无人机轨迹之间的距离，判断是否小于安全阈值，小于则标记
-def check_trajectory_conflict(all_traj, safe_distance=50):
 
-    conflict_list = []
 
-    #取最短轨迹步数，防止越界
-    min_steps = min([len(v) for v in all_traj.values()])
 
-    #外层，按照时间步逐步检查
-    for t_idx in range(min_steps):  #内层：两两无人机组合比较
-        ids = list(all_traj.keys())
-        for i in range(len(ids)):
-            for j in range(i + 1, len(ids)): #获取两架无人机当前位置
-                uav1_id = ids[i]
-                uav2_id = ids[j]
-                pos1 = all_traj[uav1_id][t_idx]['pos']
-                pos2 = all_traj[uav2_id][t_idx]['pos']
 
-                # 计算三维距离
-                dist = math.sqrt(sum([(a - b) ** 2 for a, b in zip(pos1, pos2)]))
-                if dist < safe_distance:
-                    conflict_list.append({
-                        't': all_traj[uav1_id][t_idx]['t'],
-                        'uav1': uav1_id,
-                        'uav2': uav2_id,
-                        'distance': round(dist, 2)
-                    }) #如果冲突，则记录时间t，两个无人机ID，以及实际距离
 
-    return conflict_list
 
-def plot_trajectories(all_traj):
-    fig = plt.figure(figsize=(10, 8))
-    ax = fig.add_subplot(111, projection='3d')
-
-    for uav_id, traj in all_traj.items():
-        xs = [point['pos'][0] for point in traj]
-        ys = [point['pos'][1] for point in traj]
-        zs = [point['pos'][2] for point in traj]
-
-        # 同时画线
-        ax.plot(xs, ys, zs, linewidth=1, alpha=0.3)
-
-        # 描点
-        ax.scatter(xs, ys, zs, s=15, label=f'UAV {uav_id}')
-
-        # 起点 & 终点标记
-        ax.scatter(xs[0], ys[0], zs[0], c='green', marker='o')  # 起点
-        ax.scatter(xs[-1], ys[-1], zs[-1], c='red', marker='^')  # 终点
-
-    ax.set_xlabel('X (m)')
-    ax.set_ylabel('Y (m)')
-    ax.set_zlabel('Z (m)')
-    ax.set_title('无人机三维飞行轨迹（描点显示）')
-    ax.legend()
-    plt.show()
 
 
 
@@ -1113,6 +958,29 @@ if __name__ == "__main__":
 
     #获得交错时间
     predicted_time, base_local_final, enemy_local_final = predict_cross_time(base, enemy_center, uavs_speed[0], enemy_speed, converter, turn_distance_threshold, dt)
+
+    uav_start_points_local, uav_end_points_local = get_uav_turning_points(
+        enemy_geo,
+        enemy_center,
+        second_points,
+        base,
+        enemy_speed,
+        uavs_speed[0],  # 无人机飞行速度标量
+        uavs_speed,  # 无人机速度参数列表
+        converter,
+        predicted_time,
+        turn_time,
+        distance_follow,
+        detection_size,
+        height,
+        y_gap,
+        dt
+    )
+
+    # 打印起点和终点
+    for idx in range(len(uav_start_points_local)):
+        print(f"无人机 {idx}: 起点 local = {uav_start_points_local[idx]}, 终点 local = {uav_end_points_local[idx]}")
+
 
 
 
