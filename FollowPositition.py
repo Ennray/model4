@@ -559,14 +559,6 @@ def get_uav_turning_points(enemy_positions_geo, enemy_center_geo,
             dt
         )
 
-    # 获取无人机起点（局部坐标）
-    uav_start_points_local = []
-    for geo in uav_positions_geo:
-        lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(geo)
-        local = converter.geodetic_to_local(lat, lon, alt)
-        uav_start_points_local.append(local)
-
-    # 调用second_turning_position计算终点（占位位置）
     final_positions_geo = second_turning_position(
         enemy_positions_geo,
         enemy_center_geo,
@@ -581,14 +573,8 @@ def get_uav_turning_points(enemy_positions_geo, enemy_center_geo,
         y_gap
     )
 
-    # 转成局部坐标
-    uav_end_points_local = []
-    for geo in final_positions_geo:
-        lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(geo)
-        local = converter.geodetic_to_local(lat, lon, alt)
-        uav_end_points_local.append(local)
 
-    return uav_start_points_local, uav_end_points_local
+    return uav_positions_geo, final_positions_geo
 
 
 
