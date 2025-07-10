@@ -488,6 +488,46 @@ def classify_uav_turning(uav_positions_geo, base_geo, converter, distance_thresh
 
     return decisions
 
+#判断第1波无人机何时即将与敌群交错，以便得到转弯时机
+def predict_cross_time(base_geo, enemy_center_geo,
+                       base_speed, enemy_speed,
+                       converter, threshold_dist=500, dt=1.0, max_time=300):
+    #base， 敌群中心坐标， 第1波无人机速度， 敌群速度， 对象， 距离阈值， 单位时间， 最大模拟时间（防止死循环）
+
+    # 转换初始坐标为局部
+    b_lat, b_lon, b_alt = GeodeticConverter.decimal_dms_to_degrees(base_geo)
+    base_local = np.array(converter.geodetic_to_local(b_lat, b_lon, b_alt))
+
+    e_lat, e_lon, e_alt = GeodeticConverter.decimal_dms_to_degrees(enemy_center_geo)
+    enemy_local = np.array(converter.geodetic_to_local(e_lat, e_lon, e_alt))
+
+    # 计算方向向量
+    direction = enemy_local - base_local
+    norm = np.linalg.norm(direction)
+    if norm > 0:
+        direction_unit = direction / norm
+    else:
+        direction_unit = np.zeros(3)
+
+    time_elapsed = 0
+
+    while time_elapsed < max_time:
+        # 每1秒更新第1波无人机的位置
+        base_local = base_local + direction_unit * base_speed * dt
+        # 每1秒更新敌群中心的位置
+        enemy_local = enemy_local - direction_unit * enemy_speed * dt
+
+        # 计算当前距离
+        dist = np.linalg.norm(enemy_local - base_local)
+
+        if dist <= threshold_dist:
+            return time_elapsed + dt, base_local, enemy_local
+
+        time_elapsed += dt
+
+    # 如果超过最大时间还没满足条件，返回 None
+    return None, base_local, enemy_local
+
 
 #计算每架无人机与敌群中心的直线距离和预计交会时间
 def calculate_meeting_time(uav_points, base, enemy_center, enemy_speed, uav_speed,):
@@ -1061,7 +1101,7 @@ if __name__ == "__main__":
 
     uav_speed = [180 for _ in second_points]
 
-
+    #对第2波次无人机进行分类，一部分延迟转弯，一部分独立转弯
     decision_array = classify_uav_turning(second_points, base, converter, base_distance_threshold)
 
     # 打印结果
@@ -1071,17 +1111,20 @@ if __name__ == "__main__":
         else:
             print(f"无人机 {idx}: 距离远，独立转弯 (0)")
 
+    #获得交错时间
+    predicted_time, base_local_final, enemy_local_final = predict_cross_time(base, enemy_center, uavs_speed[0], enemy_speed, converter, turn_distance_threshold, dt)
 
 
-    enemy_positions_geo_new, uav_positions_geo_new = update_positions_geo(enemy_geo, second_points, enemy_center, base, enemy_speed, uav_speed, converter, dt)
 
-    print("敌机新位置:")
-    for e in enemy_positions_geo_new:
-        print(e)
-
-    print("\n无人机新位置:")
-    for u in uav_positions_geo_new:
-        print(u)
+    # enemy_positions_geo_new, uav_positions_geo_new = update_positions_geo(enemy_geo, second_points, enemy_center, base, enemy_speed, uav_speed, converter, dt)
+    #
+    # print("敌机新位置:")
+    # for e in enemy_positions_geo_new:
+    #     print(e)
+    #
+    # print("\n无人机新位置:")
+    # for u in uav_positions_geo_new:
+    #     print(u)
 
     # #计算交会时间和距离
     # results_sorted = calculate_meeting_time(second_points, base, enemy_center, enemy_speed, uavs_speed[0])
