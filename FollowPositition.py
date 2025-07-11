@@ -464,48 +464,31 @@ def ecef_to_enu_vector(ecef1, ecef2, lat_ref, lon_ref):
     return enu_vector
 
 
-def calculate_direction_vector(point1, point2):
-    """
-    计算两个经纬度点的ENU方向向量
-    
-    参数:
-        point1: 起始点 [经度, 纬度, 高度]
-        point2: 目标点 [经度, 纬度, 高度]
-    
-    返回:
-        numpy.array: ENU方向向量
-    """
-    lat1, lon1, alt1 = GeodeticConverter.decimal_dms_to_degrees(point1)
-    lat2, lon2, alt2 = GeodeticConverter.decimal_dms_to_degrees(point2)
+def calculate_direction_vector(enemy_center_geo, our_center_geo, converter):
+    # 转换敌机中心
+    lat_e, lon_e, alt_e = GeodeticConverter.decimal_dms_to_degrees(enemy_center_geo)
+    enemy_local = converter.geodetic_to_local(lat_e, lon_e, alt_e)
 
-    # 转换为ECEF坐标
-    ecef1 = geodetic_to_ecef(lat1, lon1, alt1)
-    ecef2 = geodetic_to_ecef(lat2, lon2, alt2)
+    # 转换我方中心
+    lat_o, lon_o, alt_o = GeodeticConverter.decimal_dms_to_degrees(our_center_geo)
+    our_local = converter.geodetic_to_local(lat_o, lon_o, alt_o)
 
-    # 计算ENU方向向量（以point1为参考点）
-    enu_vector = ecef_to_enu_vector(ecef1, ecef2, lat1, lon1)
-    return enu_vector
+    # 差值向量（指向敌机）
+    delta = enemy_local - our_local
+
+    # 单位化
+    norm = np.linalg.norm(delta)
+    if norm == 0:
+        return np.array([0.0, 0.0, 0.0])  # 避免除零
+    direction_unit = delta / norm
+
+    return direction_unit
 
 
 def update_positions_geo(enemy_positions_geo, uav_positions_geo, enemy_center_geo, our_center_geo,
                         enemy_speed, uav_speeds, converter, dt=1.0):
-    """
-    实时更新敌我双方无人机经纬度坐标
-    
-    参数:
-        enemy_positions_geo: 敌机位置（经纬度）
-        uav_positions_geo: 我方无人机位置（经纬度）
-        enemy_center_geo: 敌机中心位置
-        our_center_geo: 我方中心位置
-        enemy_speed: 敌机速度
-        uav_speeds: 我方无人机速度列表
-        converter: 坐标转换器
-        dt: 时间步长
-    
-    返回:
-        tuple: (更新后的敌机位置, 更新后的无人机位置)
-    """
-    direction_unit = calculate_direction_vector(enemy_center_geo, our_center_geo)
+
+    direction_unit = calculate_direction_vector(enemy_center_geo, our_center_geo, converter)
     
     updated_enemy_positions = []
     updated_uav_positions = []
@@ -532,20 +515,9 @@ def update_positions_geo(enemy_positions_geo, uav_positions_geo, enemy_center_ge
 
     return updated_enemy_positions, updated_uav_positions
 
-
+#对第二波次进行分类，按照与base的阈值分为随第1波次转弯以及不随第1波次转弯，而是自己按最优航迹开始转弯，记录类别
 def classify_uav_turning(uav_positions_geo, base_geo, converter, distance_threshold):
-    """
-    对第二波次无人机进行分类：跟随第一波转弯 vs 独立转弯
-    
-    参数:
-        uav_positions_geo: 无人机位置（经纬度）
-        base_geo: 基准点位置
-        converter: 坐标转换器
-        distance_threshold: 距离阈值
-    
-    返回:
-        list: 决策列表，1表示跟随转弯，0表示独立转弯
-    """
+    # 我方无人机经纬度、base、对象、阈值
     # 将base转换为局部坐标
     base_lat, base_lon, base_alt = GeodeticConverter.decimal_dms_to_degrees(base_geo)
     base_local = converter.geodetic_to_local(base_lat, base_lon, base_alt)
@@ -626,7 +598,7 @@ def get_uav_turning_points(enemy_positions_geo, enemy_center_geo,
 
     #调用敌我双方经纬度实时更新函数，获得敌我双方即将拐弯时的经纬度
     for _ in range(steps):
-            enemy_positions_geo, uav_positions_geo, enemy_center_geo, base_geo = update_positions_geo(
+            enemy_positions_geo, uav_positions_geo = update_positions_geo(
             enemy_positions_geo,
             uav_positions_geo,
             enemy_center_geo,
@@ -656,20 +628,7 @@ def get_uav_turning_points(enemy_positions_geo, enemy_center_geo,
 
 def plot_moving_3D(enemy_positions_geo, uav_positions_geo, enemy_center_geo, our_center_geo,
                    enemy_speed, uav_speed_scalar, converter, total_time=60, dt=1.0):
-    """
-    绘制敌我双方无人机的3D轨迹图
-    
-    参数:
-        enemy_positions_geo: 敌机位置（经纬度）
-        uav_positions_geo: 我方无人机位置（经纬度）
-        enemy_center_geo: 敌机中心位置
-        our_center_geo: 我方中心位置
-        enemy_speed: 敌机速度
-        uav_speed_scalar: 我方无人机速度
-        converter: 坐标转换器
-        total_time: 总模拟时间 (s)
-        dt: 时间步长 (s)
-    """
+
     steps = int(total_time / dt)
     uav_speeds = [uav_speed_scalar for _ in uav_positions_geo]
 
