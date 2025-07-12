@@ -65,8 +65,142 @@ def calculate_distances_opposite(total_dist, v_start, v_max, v_end, acc, dec, v_
     uav_distance_fx = d1 + d2 + d3
     uav_distance = float(uav_distance_fx.evalf())
 
+    # 计算竖直方向爬升距离
+    height_distances_max = calculate_max_vertical_distance(total_time, v_max=80, acceleration=40)
 
-    return total_time,uav_distance
+    return total_time,uav_distance,height_distances_max
+
+def calculate_max_vertical_distance(total_time, v_max=80, acceleration=40):
+    """
+    计算竖直方向可以爬升的最大距离
+    运动过程：匀加速 -> 匀速 -> 匀减速为零
+    
+    参数:
+        total_time: 总飞行时间 (s)
+        v_max: 竖直方向最大速度 (m/s)
+        acceleration: 加速度 (m/s²)
+    
+    返回:
+        height_distance: 最大爬升距离 (m)
+    """
+    # 加速到最大速度需要的时间
+    t_acc = v_max / acceleration
+    
+    # 从最大速度减速到零需要的时间
+    t_dec = v_max / acceleration  # 减速度等于加速度
+    
+    # 匀速飞行时间
+    t_uniform = total_time - t_acc - t_dec
+    
+    # 如果总时间不够进行完整的三段式运动
+    if t_uniform < 0:
+        # 只能进行加速和减速，无法达到最大速度
+        # 设加速时间为 t1，减速时间为 t2 = total_time - t1
+        # 最大速度为 v_peak = acceleration * t1
+        # 由于对称，t1 = t2 = total_time / 2
+        t1 = total_time / 2
+        v_peak = acceleration * t1
+        
+        # 加速段距离
+        s1 = 0.5 * acceleration * t1**2
+        # 减速段距离
+        s2 = v_peak * t1 - 0.5 * acceleration * t1**2
+        
+        height_distance = s1 + s2
+    else:
+        # 完整的三段式运动
+        # 加速段距离
+        s1 = 0.5 * acceleration * t_acc**2
+        
+        # 匀速段距离
+        s2 = v_max * t_uniform
+        
+        # 减速段距离
+        s3 = v_max * t_dec - 0.5 * acceleration * t_dec**2
+        
+        height_distance = s1 + s2 + s3
+    
+    return height_distance
+
+def calculate_time_to_reach_height(target_height, v_max=80, acceleration=40):
+    """
+    计算达到指定高度所需的最小时间
+    运动过程：匀加速 -> 匀速 -> 匀减速为零
+    
+    参数:
+        target_height: 目标爬升高度 (m)
+        v_max: 竖直方向最大速度 (m/s)
+        acceleration: 加速度 (m/s²)
+    
+    返回:
+        min_time: 达到目标高度的最小时间 (s)
+    """
+    # 加速到最大速度需要的时间
+    t_acc = v_max / acceleration
+    
+    # 从最大速度减速到零需要的时间
+    t_dec = v_max / acceleration
+    
+    # 加速段距离
+    s_acc = 0.5 * acceleration * t_acc**2
+    
+    # 减速段距离
+    s_dec = v_max * t_dec - 0.5 * acceleration * t_dec**2
+    
+    # 仅靠加速和减速能达到的最大高度
+    max_height_without_uniform = s_acc + s_dec
+    
+    if target_height <= max_height_without_uniform:
+        # 不需要匀速段，只需要对称的加速和减速
+        # 解方程：target_height = 2 * (0.5 * acceleration * t^2)
+        # 其中 t 是加速时间（也等于减速时间）
+        t_half = math.sqrt(target_height / acceleration)
+        min_time = 2 * t_half
+    else:
+        # 需要匀速段
+        uniform_distance = target_height - max_height_without_uniform
+        t_uniform = uniform_distance / v_max
+        min_time = t_acc + t_uniform + t_dec
+    
+    return min_time
+
+
+def calculate_min_safe_vertical_distance(enemy_positions_geo, uav_positions_geo, converter, safety_margin=100):
+    """
+    计算竖直方向爬升的最小安全高度
+    要求我方高度最小的无人机也要超过敌方高度最大的无人机
+    
+    参数:
+        enemy_positions_geo: 敌机位置（经纬度）
+        uav_positions_geo: 我方无人机位置（经纬度）
+        converter: 坐标转换器
+        safety_margin: 安全余量 (m)
+    
+    返回:
+        min_climb_height: 最小爬升高度 (m)
+        enemy_max_altitude: 敌机最大高度 (m)
+        uav_min_altitude: 我方最小高度 (m)
+    """
+    # 获取敌机的最大高度
+    enemy_max_altitude = float('-inf')
+    for geo in enemy_positions_geo:
+        lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(geo)
+        enemy_max_altitude = max(enemy_max_altitude, alt)
+    
+    # 获取我方无人机的最小高度
+    uav_min_altitude = float('inf')
+    for geo in uav_positions_geo:
+        lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(geo)
+        uav_min_altitude = min(uav_min_altitude, alt)
+    
+    # 计算最小爬升高度 = 敌机最大高度 - 我方最小高度 + 安全余量
+    min_climb_height = enemy_max_altitude - uav_min_altitude + safety_margin
+    
+    # 如果计算结果为负数，说明我方已经在足够高度，只需要安全余量
+    if min_climb_height < safety_margin:
+        min_climb_height = safety_margin
+    
+    return min_climb_height, enemy_max_altitude, uav_min_altitude
 
 def calculate_distance_same(total_dist, v_start, v_max, v_end, acc, dec, v_enemy):
     """
@@ -474,7 +608,7 @@ def calculate_direction_vector(enemy_center_geo, our_center_geo, converter):
 
 #根据相遇时间获得敌我两方的位置
 def update_positions_geo(enemy_positions_geo, uav_positions_geo, enemy_center_geo, our_center_geo,
-                        enemy_speed, converter, dt, uav_distances):
+                        enemy_speed, converter, dt, uav_distances, height_distances):
     #敌方经纬度，我方经纬度，敌方中心，我方中心，敌方速度，对象，我方预测飞行距离
 
     #计算敌我两方的方向向量
@@ -507,6 +641,8 @@ def update_positions_geo(enemy_positions_geo, uav_positions_geo, enemy_center_ge
         
         # 我方无人机沿正方向飞行
         pos_local[1] = pos_local[1] + uav_distances
+        # 竖直方向爬升
+        pos_local[0] = pos_local[0] - height_distances -200
         new_pos_local = pos_local
         new_geo = converter.local_to_geodetic_dms(new_pos_local)
         updated_uav_positions.append(new_geo)
@@ -516,6 +652,7 @@ def update_positions_geo(enemy_positions_geo, uav_positions_geo, enemy_center_ge
     pos_uav_center = converter.geodetic_to_local(uav_center_lat, uav_center_lon, uav_center_alt)
 
     pos_uav_center[1] = pos_uav_center[1] + uav_distances
+    pos_uav_center[0] = pos_uav_center[0] - height_distances -200
     new_pos_uav_center = pos_uav_center
     new_geo_uav_center = converter.local_to_geodetic_dms(new_pos_uav_center)
 
@@ -1162,12 +1299,25 @@ if __name__ == "__main__":
     #获得敌方中心转坐标系的点位
     enemy_center_local = converter.geodetic_to_local(B_lat, B_lon, B_alt)
     #获得预测时间和我方预期飞行距离
-    predict_time, predict_distance = calculate_distances_opposite(enemy_center_local[1]-sort_second_points[0][1], uavs_speed[0],
+    predict_time, predict_distance, height_distances_max = calculate_distances_opposite(enemy_center_local[1]-sort_second_points[0][1], uavs_speed[0],
                                                                   uavs_speed[3], uavs_speed[4], uavs_speed[1], uavs_speed[2], enemy_speed)
+
+    # 计算最小安全爬升高度
+    print(f"\n=== 最小安全爬升高度计算 ===")
+    min_climb_height, enemy_max_alt, uav_min_alt = calculate_min_safe_vertical_distance(
+        enemy_geo, second_points, converter, safety_margin=100
+    )
+    print(f"敌机最大高度: {enemy_max_alt:.2f} 米")
+    print(f"我方无人机最小高度: {uav_min_alt:.2f} 米") 
+    print(f"要求最小爬升高度: {min_climb_height:.2f} 米")
+
+    height_distances = min(height_distances_max, min_climb_height)
+
+    print(f"爬升高度为: {height_distances:.2f} 米")
 
     #获得相遇时敌方的坐标，我方的坐标，敌方的中心，我方的中心
     new_enemy_points, new_uav_points, new_enemy_center, new_uav_center = update_positions_geo(enemy_geo, second_points, enemy_center, base,
-                                                                                              enemy_speed, converter, predict_time, predict_distance)
+                                                                                              enemy_speed, converter, predict_time, predict_distance, height_distances)
 
     print("敌机相遇位置:")
     for e in new_enemy_points:
@@ -1243,8 +1393,5 @@ if __name__ == "__main__":
     # print("\n无人机新位置:")
     # for u in uav_positions_geo_new:
     #     print(u)
-
-
-
 
 
