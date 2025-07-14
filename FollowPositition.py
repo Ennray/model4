@@ -16,10 +16,7 @@ import GeodeticConverter
 import sympy as sp
 import velocity_recong
 
-# WGS84椭球参数
-a = 6378137.0  # 长半轴 (米)
-f = 1 / 298.257223563  # 扁率
-e2 = 2*f - f**2  # 第一偏心率平方
+
 
 #计算无人机与敌机迎面飞行相遇的总时间和我方飞行距离
 def calculate_distances_opposite(total_dist, v_start, v_max, v_end, acc, dec, v_enemy):
@@ -308,16 +305,16 @@ def find_edge_points(data):
     return min_x, max_x, min_y, max_y, min_z, max_z
 
 #对我方无人机按照靠近敌机的顺序进行排序
-def sorted_y_points(second_points):
+def sorted_y_points(second_points, converter):
     seconds = []
     i = 0
     for point in second_points:
         lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(point)
         point_local = converter.geodetic_to_local(lat, lon, alt)
-        seconds.append([point_local, i, 0])
+        seconds.append([point_local, i])
         i += 1
-    seconds_sorted = sorted(seconds, key=lambda item: item[0][1], reverse=False) #按照y值从小到大排序
-    print(i)
+    seconds_sorted = sorted(seconds, key=lambda item: item[0][1], reverse=True)#按y轴排序
+
 
     return seconds_sorted
 
@@ -671,6 +668,7 @@ def classify_uav_turning(uav_positions_geo, base_geo, converter, distance_thresh
         # 将无人机位置转换为局部坐标
         lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(geo)
         pos_local = converter.geodetic_to_local(lat, lon, alt)
+        print(f"第{geo}个无人机的坐标:{pos_local}")
         
         # 计算到base的距离
         dist = np.linalg.norm(np.array(pos_local) - np.array(base_local))
@@ -1286,26 +1284,38 @@ if __name__ == "__main__":
     #对第2波次无人机进行分类，一部分延迟转弯，一部分独立转弯
     decision_array = classify_uav_turning(second_points, base, converter, base_distance_threshold)
 
+
+    second_iuav_points = []
+    second_duav_points = []
     # 打印结果
     for idx, val in enumerate(decision_array):
         if val == 1:
             print(f"无人机 {idx}: 距离近，跟随第一波转弯 (1)")
+            second_duav_points.append(second_points[idx])
         else:
             print(f"无人机 {idx}: 距离远，独立转弯 (0)")
+            second_iuav_points.append(second_points[idx])
 
-    #得到按y轴排序的我方无人机队列
-    sort_second_points = sorted_y_points(second_points)
-
+    # 得到按y轴排序的我方无人机队列
+    sort_second_points = sorted_y_points(second_points,converter)
+    print(f"纵队最前方无人机:{sort_second_points}")
     #获得敌方中心转坐标系的点位
     enemy_center_local = converter.geodetic_to_local(B_lat, B_lon, B_alt)
+
+    # #获得我方第一波次坐标系点位
+    # uav_first_local = converter.geodetic_to_local(A_lat, A_lon, A_alt)
+    # print(f"我方第一波次无人机位置:{uav_first_local[1]}")
+
     #获得预测时间和我方预期飞行距离
-    predict_time, predict_distance, height_distances_max = calculate_distances_opposite(enemy_center_local[1]-sort_second_points[0][1], uavs_speed[0],
-                                                                  uavs_speed[3], uavs_speed[4], uavs_speed[1], uavs_speed[2], enemy_speed)
+    predict_time, predict_distance, height_distances_max = calculate_distances_opposite(enemy_center_local[1], uavs_speed[0],
+                                                                  uavs_speed[3], uavs_speed[4], uavs_speed[1], uavs_speed[2], enemy_speed) #因为原点是0，只需要输入敌方距离即可判定转弯时机
+
+    print(f"预期飞行时间:{predict_time} 预期飞行距离:{predict_distance}")
 
     # 计算最小安全爬升高度
     print(f"\n=== 最小安全爬升高度计算 ===")
     min_climb_height, enemy_max_alt, uav_min_alt = calculate_min_safe_vertical_distance(
-        enemy_geo, second_points, converter, safety_margin=100
+        enemy_geo, second_iuav_points, converter, safety_margin=100
     )
     print(f"敌机最大高度: {enemy_max_alt:.2f} 米")
     print(f"我方无人机最小高度: {uav_min_alt:.2f} 米") 
@@ -1316,7 +1326,7 @@ if __name__ == "__main__":
     print(f"爬升高度为: {height_distances:.2f} 米")
 
     #获得相遇时敌方的坐标，我方的坐标，敌方的中心，我方的中心
-    new_enemy_points, new_uav_points, new_enemy_center, new_uav_center = update_positions_geo(enemy_geo, second_points, enemy_center, base,
+    new_enemy_points, new_uav_points, new_enemy_center, new_uav_center = update_positions_geo(enemy_geo, second_iuav_points, enemy_center, base,
                                                                                               enemy_speed, converter, predict_time, predict_distance, height_distances)
 
     print("敌机相遇位置:")
