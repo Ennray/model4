@@ -209,8 +209,8 @@ def decimal_dms_to_degrees(coord_str):
     解析完整坐标字符串 '["28:13:34.95W", "00:30:31.24N", "50.0"]'
     返回 (纬度, 经度, 高度)
     """
-    lat_dms = coord_str[1]
-    lon_dms = coord_str[0]
+    lat_dms = coord_str[1] #纬度
+    lon_dms = coord_str[0] #经度
     alt = coord_str[2]
     latitude = dms_to_decimal(lat_dms)  # N为正
     longitude = dms_to_decimal(lon_dms)  # W为正
