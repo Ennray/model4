@@ -380,36 +380,44 @@ def second_turning_position(enemy_geo, enemy_center, second_iuav_points, enemy_s
     # ===================== 重新计算敌群边界（新中心） =====================
     min_x, max_x, min_y, max_y, min_z, max_z = find_edge_points(enemys)
     print(f"理论的敌群边界:{min_x, max_x, min_y, max_y, min_z, max_z}")
+    a = max_y - min_y
+    b = max_z - min_z
+    angle_deg = math.degrees(math.atan2(a, b))
+    print(f"<UNK>:{angle_deg} aaaaaa{a}bbbbb{b}")
+
 
     # ===================== 计算包围圈格点 =====================
     # 计算第一圈最大无人机数（四边逻辑）
-    quantity = (max_x - min_x) / detection_size[0] * 2 + (max_y - min_y) / y_gap * 2 - 4
+    quantity = (max_x - min_x) / detection_size[0] * 2 + (max_y - min_y) / detection_size[1] * 2 - 4
 
     quantity = int(quantity)
     print(f"显示圈上无人机数:{quantity}")
+    n = 1
 
     # ===================== 给每架无人机分配边缘点 =====================
     for i, uav in enumerate(seconds):
         casei = i % 4  # 决定分配哪条边
-        num = i
+        num = i // 4
+
+
         print(f"numnumnumnumnum:{num}")
 
-        if casei == 0:  # 上边缘
-            target_x = min_x + num * detection_size[0]
-            target_y = max_y + distance_follow
-            target_z = max_z + height
-        elif casei == 1:  # 右边缘
-            target_x = max_x + distance_follow
-            target_y = max_y - num * y_gap
-            target_z = max_z + height
-        elif casei == 2:  # 下边缘
-            target_x = max_x - num * detection_size[0]
-            target_y = min_y - distance_follow
-            target_z = min_z + height
-        else:  # 左边缘
-            target_x = min_x - distance_follow
-            target_y = min_y + num * y_gap
-            target_z = min_z + height
+        if casei == 0:  # 右边缘
+            target_x = min_x + (n+num) * detection_size[0]
+            target_y = max_y - n * y_gap + distance_follow
+            target_z = max_z - n * detection_size[1] + height
+        elif casei == 1:  # 下边缘
+            target_x = max_x
+            target_y = max_y + 1000 * math.cos(angle_deg * math.pi / 180) - 2000 * math.sin(angle_deg * math.pi / 180) * num
+            target_z = max_z - 1000 * math.sin(angle_deg * math.pi / 180) - 2000 * math.cos(angle_deg * math.pi / 180) * num
+        elif casei == 2:  # 左边缘
+            target_x = max_x - (n+num) * detection_size[0]
+            target_y = min_y - n * y_gap + distance_follow
+            target_z = min_z - n * detection_size[1] + height
+        else:  # 上边缘
+            target_x = min_x
+            target_y = min_y + 1000 * math.cos(angle_deg * math.pi / 180) + 2000 * math.sin(angle_deg * math.pi / 180) * num
+            target_z = min_z - 1000 * math.sin(angle_deg * math.pi / 180) + 2000 * math.cos(angle_deg * math.pi / 180) * num
 
         # 更新无人机目标点
         uav[0] = [target_x, target_y, target_z]
