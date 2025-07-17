@@ -642,7 +642,7 @@ def second_turning_position(enemy_geo, enemy_center, second_iuav_points, enemy_s
     a = max_y - min_y
     b = max_z - min_z
     angle_deg = math.degrees(math.atan2(a, b))
-    print(f"<UNK>:{angle_deg} aaaaaa{a}bbbbb{b}")
+
 
     # 计算最外圈每一条边理论上最大无人机数以及每一层最大无人机数
     diagonal_length = math.sqrt((max_z - min_z) ** 2 + (max_y - min_y) ** 2)
@@ -718,23 +718,40 @@ def update_ipositions_geo(enemy_positions_geo, uav_positions_geo, enemy_center_g
     new_geo_uav_center[2] = str(float(new_geo_uav_center[2]) + height_distances)
 
 
-    return updated_enemy_positions, updated_uav_positions, new_geo_enemy_center, new_geo_uav_center
+    return updated_enemy_positions, updated_uav_positions, new_geo_enemy_center, new_geo_uav_center, direction_unit
 
-#9. 根据转弯时间+相遇时间的总时间（第一波已经完成转弯）获得相遇时敌方和第二波延迟转弯无人机的位置
-def update_dposition_geo(enemy_positions_geo, uav_positions_geo, enemy_speed, converter):
-    # 计算敌我两方的方向向量
-    #direction_unit = calculate_direction_vector(enemy_center_geo, our_center_geo, converter)
+#因为敌我速度均很快，为了保证相遇过程中敌群一直在延迟转弯无人机视场内，紧急减速情况下的安全距离
+def safety_distance (uavs_speed, enemy_speed):
+    t_reduce = uavs_speed[4] / uavs_speed[2]
+    dis_reduce = uavs_speed[4] ** 2 / (2 * uavs_speed[2]) + enemy_speed * t_reduce
+    print(f"t_reduce:{t_reduce}  dis_reduce:{dis_reduce}")
 
-    updated_enemy_positions = []
+    return t_reduce, dis_reduce
+
+
+#9. 根据转弯时间+相遇时间的总时间（第一波已经完成转弯）获得相遇时第二波延迟转弯无人机的位置
+def update_dposition_geo( duav_positions_geo, enemy_speed, converter, uav_distances, height_distances, uavs_speed):
     updated_uav_positions = []
 
-    # 敌群经纬度转坐标系
-    for geo in enemy_positions_geo:
+    # 延迟转弯的无人机减速到0需要多少时间以及往前走多少距离
+    t_reduce, dis_reduce = safety_distance(uavs_speed,enemy_speed)
+    #相对的，敌方会在我方减速的时候前进
+    enemy_dis = t_reduce * enemy_speed
+
+    # 我方经纬度转坐标系(更新到第一波无人机及独立转弯点无人机即将转弯时）
+    for idx, geo in enumerate(duav_positions_geo):
         lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(geo)
         pos_local = converter.geodetic_to_local(lat, lon, alt)
 
+        # 我方无人机沿正方向飞行
+        pos_local[1] = pos_local[1] + uav_distances - dis_reduce - enemy_dis
+        new_pos_local = pos_local
+        new_geo = converter.local_to_geodetic_dms(new_pos_local)
+        # 竖直方向爬升
+        new_geo[2] = str(float(new_geo[2]) + height_distances)
+        updated_uav_positions.append(new_geo)
 
-
+    return  updated_uav_positions
 
 
 #判断第1波无人机何时即将与敌群交错，以便得到转弯时机(目前假设第1波无人机也是先加速后减速与敌方相遇，暂留此函数）
@@ -1256,7 +1273,7 @@ if __name__ == "__main__":
     predict_time, predict_distance, height_distances_max = calculate_distances_opposite(enemy_center_local[1], uavs_speed[0],
                                                                   uavs_speed[3], uavs_speed[4], uavs_speed[1], uavs_speed[2], enemy_speed) #因为原点是0，只需要输入敌方距离即可判定转弯时机
 
-    print(f"预期飞行时间:{predict_time} 预期飞行距离:{predict_distance}")
+    print(f"预期飞行时间:{predict_time} 预期飞行距离:{predict_distance} 总距离：{enemy_center_local[1]} 敌方飞行距离:{enemy_speed*predict_time}")
 
     # 计算最小安全爬升高度
     print(f"\n=== 最小安全爬升高度计算 ===")
@@ -1273,7 +1290,7 @@ if __name__ == "__main__":
     print(f"爬升高度为: {height_distances:.2f} 米")
 
     #获得相遇时敌方的坐标，我方的坐标，敌方的中心，我方第二波次独立转弯的无人机中心
-    new_enemy_points, new_uav_points, new_enemy_center, new_uav_center = update_ipositions_geo(enemy_geo, second_iuav_points, enemy_center, base,
+    new_enemy_points, new_iuav_points, new_enemy_center, new_uav_center, direction_unit = update_ipositions_geo(enemy_geo, second_iuav_points, enemy_center, base,
                                                                                               enemy_speed, converter, predict_time, predict_distance, height_distances)
 
 
@@ -1285,10 +1302,10 @@ if __name__ == "__main__":
         print(e)
 
     print("\n无人机转弯位置:")
-    for u in new_uav_points:
+    for u in new_iuav_points:
         print(u)
 
-
+    new_duav_points = update_dposition_geo(second_duav_points, enemy_speed, converter, predict_distance, height_distances, uavs_speed)
 
 
     # 得到按y轴排序的我方无人机队列
@@ -1308,7 +1325,7 @@ if __name__ == "__main__":
 
 
     # 只调用一次，画初始位置和终点位置
-    plot_positions_with_centers(enemy_geo, second_points, test, new_uav_points, uav_end_points, enemy_center, base, new_enemy_center, new_uav_center, converter)
+    plot_positions_with_centers(enemy_geo, second_points, test, new_iuav_points, uav_end_points, enemy_center, base, new_enemy_center, new_uav_center, converter)
 
 
 
