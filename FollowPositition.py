@@ -166,41 +166,6 @@ def calculate_time_to_reach_height(target_height, v_max=80, acceleration=40):
     return min_time
 
 
-def calculate_min_safe_vertical_distance(enemy_positions_geo, uav_positions_geo, converter, safety_margin=100):
-    """
-    计算竖直方向爬升的最小安全高度
-    要求我方高度最小的无人机也要超过敌方高度最大的无人机
-    
-    参数:
-        enemy_positions_geo: 敌机位置（经纬度）
-        uav_positions_geo: 我方无人机位置（经纬度）
-        converter: 坐标转换器
-        safety_margin: 安全余量 (m)
-    
-    返回:
-        min_climb_height: 最小爬升高度 (m)
-        enemy_max_altitude: 敌机最大高度 (m)
-        uav_min_altitude: 我方最小高度 (m)
-    """
-    # 获取敌机的最大高度
-    enemy_max_altitude = float('-inf')
-    for geo in enemy_positions_geo:
-        enemy_max_altitude = max(enemy_max_altitude, float(geo[2]))
-        print(f"敌机=============={geo}:hemax:{enemy_max_altitude}")
-    
-    # 获取我方无人机的最小高度
-    uav_min_altitude = float('inf')
-    for geo in uav_positions_geo:
-        uav_min_altitude= min(uav_min_altitude, float(geo[2]))
-    # 计算最小爬升高度 = 敌机最大高度 - 我方最小高度 + 安全余量
-    min_climb_height = enemy_max_altitude - uav_min_altitude + safety_margin
-    
-    # 如果计算结果为负数，说明我方已经在足够高度，只需要安全余量
-    if min_climb_height < safety_margin:
-        min_climb_height = safety_margin
-    
-    return min_climb_height, enemy_max_altitude, uav_min_altitude
-
 def calculate_distance_same(total_dist, v_start, v_max, v_end, acc, dec, v_enemy):
     """
     计算无人机与敌机同向飞行时的运动时间
@@ -318,238 +283,6 @@ def sorted_y_points(second_points, converter):
     seconds_sorted = sorted(seconds, key=lambda item: item[0][1], reverse=True)#按y轴排序
     return seconds_sorted
 
-#求解每一层最大圈数n
-def calculate_max_rings(total, a, b):
-    n = 0
-    sum_uav = 0
-
-    while True:
-        n += 1
-        total_n = 2*a + 2*b - 8*n + 4
-        if total_n <= 0:
-            break
-        if sum_uav + total_n > total:
-            break
-        sum_uav += total_n
-
-    if n == 1:
-        return n
-    else:
-        return n - 1
-
-
-import math
-
-def allocate_one_ring(flag, angle_deg, tmp_num, quantity_this_ring, coord_list,
-                      min_x, max_x, min_y, max_y, min_z, max_z,
-                      quantity_a, quantity_b, m):
-
-    print("quantity_this_ring", quantity_this_ring)
-    for i in range(quantity_this_ring ):
-        casei = i % 4
-        num = i// 4
-        print("i and casei and num", i,casei,num)
-        if flag == 1 or flag == 2:
-            casei += 1
-        # 更新 flag
-        if num + 1 >= quantity_a and num + 1 < quantity_b:
-            flag = 1
-        elif num + 1 >= quantity_b and num + 1 < quantity_a:
-            flag = 2
-        else:
-            flag = 0
-
-        success = False
-
-        if casei == 0 and flag != 1:  # 右边
-            target_x = min_x + detection_size[0] * 0.5 + num * detection_size[0]
-            target_y = max_y + 1000 * (m + 1) * math.cos(math.radians(angle_deg)) - detection_size[0] * 0.5 * math.sin(math.radians(angle_deg))
-            target_z = max_z - 1000 * (m + 1) * math.sin(math.radians(angle_deg)) - detection_size[0] * 0.5 * math.cos(math.radians(angle_deg))
-            success = True
-        elif casei == 1 and flag != 2:  # 下边
-            target_x = max_x - detection_size[0] * 0.5
-            target_y = max_y + 1000 * (m + 1) * math.cos(math.radians(angle_deg)) - detection_size[0] * 0.5 * math.sin(math.radians(angle_deg)) - num * 2000 * math.sin(math.radians(angle_deg))
-            target_z = max_z - 1000 * (m + 1) * math.sin(math.radians(angle_deg)) - detection_size[0] * 0.5 * math.cos(math.radians(angle_deg)) - num * 2000 * math.cos(math.radians(angle_deg))
-            success = True
-        elif casei == 2 and flag != 1:  # 左边
-            target_x = max_x - detection_size[0] * 0.5 - num * detection_size[0]
-            target_y = min_y + 1000 * (m + 1) * math.cos(math.radians(angle_deg)) + detection_size[0] * 0.5 * math.sin(math.radians(angle_deg))
-            target_z = min_z - 1000 * (m + 1) * math.sin(math.radians(angle_deg)) + detection_size[0] * 0.5 * math.cos(math.radians(angle_deg))
-            success = True
-        elif casei == 3 and flag != 2:  # 上边
-            target_x = min_x + detection_size[0] * 0.5
-            target_y = min_y + 1000 * (m + 1) * math.cos(math.radians(angle_deg)) + detection_size[0] * 0.5 * math.sin(math.radians(angle_deg)) + num * 2000 * math.sin(math.radians(angle_deg))
-            target_z = min_z - 1000 * (m + 1) * math.sin(math.radians(angle_deg)) + detection_size[0] * 0.5 * math.cos(math.radians(angle_deg)) + num * 2000 * math.sin(math.radians(angle_deg))
-            success = True
-
-        if success:
-            coord_list.append((target_x, target_y, target_z))
-            tmp_num += 1
-            print(f"占位第 {tmp_num} 个")
-
-        print(f"bianjiezhishi:{min_x, max_x, min_y, max_y, min_z, max_z}")
-
-
-
-    return coord_list
-
-
-def allocation_policy_all(total, min_x, max_x, min_y, max_y, min_z, max_z,
-                          angle_deg, quantity_a, quantity_b):
-
-    coord_list = []
-    tmp_num_total = 0
-    flag = 0
-
-    #print(f"*******total:{total}")
-    m = math.ceil(total / (quantity_a * quantity_b))
-
-
-    for j in range(m):
-        #放多少层
-        min_x_n = min_x
-        max_x_n = max_x
-        min_y_n = min_y
-        max_y_n = max_y
-        min_z_n = min_z
-        max_z_n = max_z
-        remainder_m = total - tmp_num_total
-        #print(f"<UNK>{remainder_m}<UNK>")
-        remainder_n = remainder_m
-        n = calculate_max_rings(remainder_m, quantity_a, quantity_b)
-        #print("max_n", n)
-        for i in range(n):
-            # 本圈还需要放多少个
-            #print(f"i{i}")
-            quantity_this_ring = 2 * quantity_a + 2 * quantity_b - 8 * (i + 1) + 4
-
-            #print("remainder_n", remainder_n)
-
-            if remainder_n < quantity_this_ring:
-                quantity_this_ring = remainder_n
-
-            # 本圈开始时的 tmp_num
-            tmp_num = 0
-
-            # 调用分配一圈函数
-            coord_list = allocate_one_ring(flag, angle_deg, tmp_num, quantity_this_ring,
-                                           coord_list, min_x_n, max_x_n, min_y_n, max_y_n, min_z_n, max_z_n,
-                                           quantity_a, quantity_b, j)
-            flag = 0
-
-            tmp_num_total = len(coord_list)
-
-            # 更新边界（内缩）
-            min_x_n += detection_size[0]
-            max_x_n -= detection_size[0]
-            min_y_n += detection_size[1]
-            max_y_n -= detection_size[1]
-            min_z_n += detection_size[0]
-            max_z_n -= detection_size[0]
-
-            print(f"当前总数: {tmp_num_total}, 边界更新: min_x={min_x}, max_x={max_x}")
-
-        remainder_n = remainder_m - quantity_this_ring
-
-
-
-
-
-
-
-    return coord_list
-
-
-
-
-
-def second_turning_position(enemy_geo, enemy_center, second_iuav_points, enemy_speed, turn_time,
-                            distance_follow, detection_size, height, y_gap, converter):
-
-
-    # ===================== 坐标转换（无人机当前位置） =====================
-    seconds = []
-    total = 0
-    for i, point in enumerate(second_iuav_points):
-        lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(point)
-        local = converter.geodetic_to_local(lat, lon, alt)
-        seconds.append([local, i, 0])  # 0 表示未转弯
-        total += 1
-
-    # ===================== 转换敌群坐标 =====================
-    enemys = []
-    test = []
-    for i, enemy in enumerate(enemy_geo):
-        lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(enemy)
-        local = converter.geodetic_to_local(lat, lon, alt)
-        enemys.append([local, i, 0])
-        test.append(local)
-
-
-    # 转换敌群中心
-    B_lat, B_lon, B_alt = GeodeticConverter.decimal_dms_to_degrees(enemy_center)
-    enemy_center_local = converter.geodetic_to_local(B_lat, B_lon, B_alt)
-
-    # ===================== 敌群转弯结束后位置补偿 =====================
-    enemy_move_distance = enemy_speed * turn_time
-    enemy_center_local[1] = enemy_center_local[1] - enemy_move_distance
-    #enemy_center_local[1] -= enemy_move_distance  # 假设纵向 y 方向向前飞
-
-    # 同步补偿敌群内每个敌机坐标
-    for enemy in enemys:
-        enemy[0][1] -= enemy_move_distance
-
-    for te in test:
-        te[1] = te[1]- enemy_move_distance
-
-    test_jwd = []
-    for u in test:
-        test_local = converter.local_to_geodetic_dms(u)
-        test_jwd.append(test_local)
-
-    # ===================== 重新计算敌群边界（新中心） =====================
-    min_x, max_x, min_y, max_y, min_z, max_z = find_edge_points(enemys)
-
-    print(f"理论的敌群边界:{min_x, max_x, min_y, max_y, min_z, max_z}")
-    a = max_y - min_y
-    b = max_z - min_z
-    angle_deg = math.degrees(math.atan2(a, b))
-    print(f"<UNK>:{angle_deg} aaaaaa{a}bbbbb{b}")
-
-
-    # ===================== 计算包围圈格点 =====================
-    # 计算第一圈最大无人机数（四边逻辑）
-    diagonal_length = math.sqrt((max_z - min_z) ** 2 + (max_y - min_y) ** 2)
-    quantity_a = int((max_x - min_x - detection_size[0]) / detection_size[0]) + 1
-    quantity_b = int((diagonal_length - detection_size [1]) / detection_size[1])  #因为起点在上下边缘上，可认为初始就能有两个点
-    quantity = quantity_b * quantity_a
-
-
-    print(f"显示圈上无人机数:{quantity} 左右两条边只能放{quantity_a}个，上下两条边只能放{quantity_b}个")
-
-    n = 1
-
-    flag = 0
-    tmp_num = 0
-    coord_list = []
-    # ===================== 给每架无人机分配边缘点 =====================
-
-    target= allocation_policy_all(total, min_x, max_x, min_y, max_y, min_z, max_z,
-                               angle_deg, quantity_a, quantity_b)
-
-
-
-
-
-
-
-    # ===================== 转回经纬度 =====================
-    uavstr = []
-    for uav in target:
-        result = converter.local_to_geodetic_dms(uav)
-        uavstr.append(result)
-
-    return uavstr,test_jwd
 
 
 
@@ -653,9 +386,56 @@ def first_turning_position(turn_points, second_uavs, ecenter, base_point, e_geo,
 
 
 
-#1.1.1.2
+#==============================================4.1.1.2===============================================
 
-#计算方向确定敌我前进方向
+#1. 对第二波次进行分类，按照与base的阈值分为随第1波次转弯以及不随第1波次转弯，而是自己按最优航迹开始转弯，记录类别
+def classify_uav_turning(uav_positions_geo, base_geo, converter, distance_threshold):
+    # 我方无人机经纬度、base、对象、阈值
+    # 将base转换为局部坐标
+    base_lat, base_lon, base_alt = GeodeticConverter.decimal_dms_to_degrees(base_geo)
+    base_local = converter.geodetic_to_local(base_lat, base_lon, base_alt)
+
+    decisions = []
+    for geo in uav_positions_geo:
+        # 将无人机位置转换为局部坐标
+        lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(geo)
+        pos_local = converter.geodetic_to_local(lat, lon, alt)
+        print(f"第{geo}个无人机的坐标:{pos_local}")
+
+        # 计算到base的距离
+        dist = np.linalg.norm(np.array(pos_local) - np.array(base_local))
+
+        # 判定转弯策略
+        if dist <= distance_threshold:
+            decisions.append(1)  # 跟随第一波转弯
+        else:
+            decisions.append(0)  # 独立转弯
+
+    return decisions
+
+
+# 2. 对于独立转弯或是延迟转弯点无人机均需要计算最小安全爬升高度
+def calculate_min_safe_vertical_distance(enemy_positions_geo, uav_positions_geo, converter, safety_margin=100):
+    # 获取敌机的最大高度
+    enemy_max_altitude = float('-inf')
+    for geo in enemy_positions_geo:
+        enemy_max_altitude = max(enemy_max_altitude, float(geo[2]))
+
+    # 获取我方无人机的最小高度
+    uav_min_altitude = float('inf')
+    for geo in uav_positions_geo:
+        uav_min_altitude = min(uav_min_altitude, float(geo[2]))
+    # 计算最小爬升高度 = 敌机最大高度 - 我方最小高度 + 安全余量
+    min_climb_height = enemy_max_altitude - uav_min_altitude + safety_margin
+
+    # 如果计算结果为负数，说明我方已经在足够高度，只需要安全余量
+    if min_climb_height < safety_margin:
+        min_climb_height = safety_margin
+
+    return min_climb_height, enemy_max_altitude, uav_min_altitude
+
+
+#3. 计算方向确定敌我前进方向（按理说其实就是沿着y轴前进，但保险起见还是转坐标系算一下）
 def calculate_direction_vector(enemy_center_geo, our_center_geo, converter):
     # 转换敌机中心
     lat_e, lon_e, alt_e = GeodeticConverter.decimal_dms_to_degrees(enemy_center_geo)
@@ -676,8 +456,217 @@ def calculate_direction_vector(enemy_center_geo, our_center_geo, converter):
 
     return direction_unit
 
-#根据相遇时间获得敌我两方的位置
-def update_positions_geo(enemy_positions_geo, uav_positions_geo, enemy_center_geo, our_center_geo,
+
+#4. 占位按照每一层每一圈进行，当前函数计算当前层能排布的无人机最大圈数
+def calculate_max_rings(total, a, b):
+    n = 0
+    sum_uav = 0
+
+    while True:
+        n += 1
+        total_n = 2*a + 2*b - 8*n + 4
+        if total_n <= 0:
+            break
+        if sum_uav + total_n > total:
+            break
+        sum_uav += total_n
+
+    if n == 1:
+        return n
+    else:
+        return n - 1
+
+
+#5. 分配无人机占位是按照包围圈进行的，当前函数是分配一圈无人机的策略
+def allocate_one_ring(flag, angle_deg, tmp_num, quantity_this_ring, coord_list,
+                      min_x, max_x, min_y, max_y, min_z, max_z,
+                      quantity_a, quantity_b, m):
+
+    #print("quantity_this_ring", quantity_this_ring)
+    for i in range(quantity_this_ring ):
+        casei = i % 4
+        num = i// 4
+        #print("i and casei and num", i,casei,num)
+        if flag == 1 or flag == 2: #只要flag不为0，那么说明某条边分配满了，顺延分配到下一条边
+            casei += 1
+        # 更新 flag
+        if num + 1 >= quantity_a and num + 1 < quantity_b: #如果出现上下边能分配无人机大于左右边且左右边分配满了，那么flag为1
+            flag = 1
+        elif num + 1 >= quantity_b and num + 1 < quantity_a: #如果出现左右边能分配无人机大于上下边且上下边分配满了，那么flag为2
+            flag = 2
+        else:
+            flag = 0
+
+        success = False
+
+        if casei == 0 and flag != 1:  # 右边
+            target_x = min_x + detection_size[0] * 0.5 + num * detection_size[0]
+            target_y = max_y + 1000 * (m + 1) * math.cos(math.radians(angle_deg)) - detection_size[0] * 0.5 * math.sin(math.radians(angle_deg))
+            target_z = max_z - 1000 * (m + 1) * math.sin(math.radians(angle_deg)) - detection_size[0] * 0.5 * math.cos(math.radians(angle_deg))
+            success = True
+        elif casei == 1 and flag != 2:  # 下边
+            target_x = max_x - detection_size[0] * 0.5
+            target_y = max_y + 1000 * (m + 1) * math.cos(math.radians(angle_deg)) - detection_size[0] * 0.5 * math.sin(math.radians(angle_deg)) - num * 2000 * math.sin(math.radians(angle_deg))
+            target_z = max_z - 1000 * (m + 1) * math.sin(math.radians(angle_deg)) - detection_size[0] * 0.5 * math.cos(math.radians(angle_deg)) - num * 2000 * math.cos(math.radians(angle_deg))
+            success = True
+        elif casei == 2 and flag != 1:  # 左边
+            target_x = max_x - detection_size[0] * 0.5 - num * detection_size[0]
+            target_y = min_y + 1000 * (m + 1) * math.cos(math.radians(angle_deg)) + detection_size[0] * 0.5 * math.sin(math.radians(angle_deg))
+            target_z = min_z - 1000 * (m + 1) * math.sin(math.radians(angle_deg)) + detection_size[0] * 0.5 * math.cos(math.radians(angle_deg))
+            success = True
+        elif casei == 3 and flag != 2:  # 上边
+            target_x = min_x + detection_size[0] * 0.5
+            target_y = min_y + 1000 * (m + 1) * math.cos(math.radians(angle_deg)) + detection_size[0] * 0.5 * math.sin(math.radians(angle_deg)) + num * 2000 * math.sin(math.radians(angle_deg))
+            target_z = min_z - 1000 * (m + 1) * math.sin(math.radians(angle_deg)) + detection_size[0] * 0.5 * math.cos(math.radians(angle_deg)) + num * 2000 * math.sin(math.radians(angle_deg))
+            success = True
+
+        if success:
+            coord_list.append((target_x, target_y, target_z))
+            tmp_num += 1
+            print(f"占位第 {tmp_num} 个")
+
+        print(f"bianjiezhishi:{min_x, max_x, min_y, max_y, min_z, max_z}")
+
+    return coord_list
+
+
+#6. 占位总分配策略，包括如何分配哪一层，如何分配哪一圈
+def allocation_policy_all(total, min_x, max_x, min_y, max_y, min_z, max_z,
+                          angle_deg, quantity_a, quantity_b):
+
+    coord_list = []
+    tmp_num_total = 0
+    flag = 0
+
+    #print(f"*******total:{total}")
+    m = math.ceil(total / (quantity_a * quantity_b))
+
+
+    for j in range(m):
+        #放多少层
+        min_x_n = min_x
+        max_x_n = max_x
+        min_y_n = min_y
+        max_y_n = max_y
+        min_z_n = min_z
+        max_z_n = max_z
+        remainder_m = total - tmp_num_total
+        #print(f"<UNK>{remainder_m}<UNK>")
+        remainder_n = remainder_m
+        n = calculate_max_rings(remainder_m, quantity_a, quantity_b)
+        #print("max_n", n)
+        for i in range(n):
+            # 本圈还需要放多少个
+            #print(f"i{i}")
+            quantity_this_ring = 2 * quantity_a + 2 * quantity_b - 8 * (i + 1) + 4
+
+            #print("remainder_n", remainder_n)
+
+            if remainder_n < quantity_this_ring:
+                quantity_this_ring = remainder_n
+
+            # 本圈开始时的 tmp_num
+            tmp_num = 0
+
+            # 调用分配一圈函数
+            coord_list = allocate_one_ring(flag, angle_deg, tmp_num, quantity_this_ring,
+                                           coord_list, min_x_n, max_x_n, min_y_n, max_y_n, min_z_n, max_z_n,
+                                           quantity_a, quantity_b, j)
+            flag = 0
+
+            tmp_num_total = len(coord_list)
+
+            # 更新边界（内缩）
+            min_x_n += detection_size[0]
+            max_x_n -= detection_size[0]
+            min_y_n += detection_size[1]
+            max_y_n -= detection_size[1]
+            min_z_n += detection_size[0]
+            max_z_n -= detection_size[0]
+
+            print(f"当前总数: {tmp_num_total}, 边界更新: min_x={min_x}, max_x={max_x}")
+
+        remainder_n = remainder_m - quantity_this_ring
+
+    return coord_list
+
+
+#7. 确定第二波次无人机转弯占位位置，要考虑敌群在转弯时的补偿距离
+def second_turning_position(enemy_geo, enemy_center, second_iuav_points, enemy_speed, turn_time,
+                            distance_follow, detection_size, height, y_gap, converter):
+
+
+    #坐标转换（无人机当前位置）
+    seconds = []
+    total = 0
+    for i, point in enumerate(second_iuav_points):
+        lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(point)
+        local = converter.geodetic_to_local(lat, lon, alt)
+        seconds.append([local, i, 0])  # 0 表示未转弯
+        total += 1
+
+    #转换敌群坐标
+    enemys = []
+    test = []
+    for i, enemy in enumerate(enemy_geo):
+        lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(enemy)
+        local = converter.geodetic_to_local(lat, lon, alt)
+        enemys.append([local, i, 0])
+        test.append(local)
+
+
+    # 转换敌群中心
+    B_lat, B_lon, B_alt = GeodeticConverter.decimal_dms_to_degrees(enemy_center)
+    enemy_center_local = converter.geodetic_to_local(B_lat, B_lon, B_alt)
+
+    #敌群转弯结束后位置补偿
+    enemy_move_distance = enemy_speed * turn_time
+    enemy_center_local[1] = enemy_center_local[1] - enemy_move_distance
+
+    # 同步补偿敌群内每个敌机坐标
+    for enemy in enemys:
+        enemy[0][1] -= enemy_move_distance
+
+    for te in test:
+        te[1] = te[1]- enemy_move_distance
+
+    test_jwd = []
+    for u in test:
+        test_local = converter.local_to_geodetic_dms(u)
+        test_jwd.append(test_local)
+
+    # 重新计算敌群边界（新中心）
+    min_x, max_x, min_y, max_y, min_z, max_z = find_edge_points(enemys)
+
+    print(f"理论的敌群边界:{min_x, max_x, min_y, max_y, min_z, max_z}")
+    a = max_y - min_y
+    b = max_z - min_z
+    angle_deg = math.degrees(math.atan2(a, b))
+    print(f"<UNK>:{angle_deg} aaaaaa{a}bbbbb{b}")
+
+    # 计算最外圈每一条边理论上最大无人机数以及每一层最大无人机数
+    diagonal_length = math.sqrt((max_z - min_z) ** 2 + (max_y - min_y) ** 2)
+    quantity_a = int((max_x - min_x - detection_size[0]) / detection_size[0]) + 1
+    quantity_b = int((diagonal_length - detection_size [1]) / detection_size[1])  #因为起点在上下边缘上，可认为初始就能有两个点
+    quantity = quantity_b * quantity_a
+
+    print(f"显示圈上无人机数:{quantity} 左右两条边只能放{quantity_a}个，上下两条边只能放{quantity_b}个")
+
+    #占位分配结束得到目标位置
+    target= allocation_policy_all(total, min_x, max_x, min_y, max_y, min_z, max_z,
+                               angle_deg, quantity_a, quantity_b)
+
+    #转回经纬度
+    uavstr = []
+    for uav in target:
+        result = converter.local_to_geodetic_dms(uav)
+        uavstr.append(result)
+
+    return uavstr,test_jwd
+
+
+#8. 根据相遇时间（第一波与敌群相遇）获得相遇时敌方和第二波独立转弯无人机的位置
+def update_ipositions_geo(enemy_positions_geo, uav_positions_geo, enemy_center_geo, our_center_geo,
                         enemy_speed, converter, dt, uav_distances, height_distances):
     #敌方经纬度，我方经纬度，敌方中心，我方中心，敌方速度，对象，我方预测飞行距离
 
@@ -731,30 +720,22 @@ def update_positions_geo(enemy_positions_geo, uav_positions_geo, enemy_center_ge
 
     return updated_enemy_positions, updated_uav_positions, new_geo_enemy_center, new_geo_uav_center
 
-#对第二波次进行分类，按照与base的阈值分为随第1波次转弯以及不随第1波次转弯，而是自己按最优航迹开始转弯，记录类别
-def classify_uav_turning(uav_positions_geo, base_geo, converter, distance_threshold):
-    # 我方无人机经纬度、base、对象、阈值
-    # 将base转换为局部坐标
-    base_lat, base_lon, base_alt = GeodeticConverter.decimal_dms_to_degrees(base_geo)
-    base_local = converter.geodetic_to_local(base_lat, base_lon, base_alt)
+#9. 根据转弯时间+相遇时间的总时间（第一波已经完成转弯）获得相遇时敌方和第二波延迟转弯无人机的位置
+def update_dposition_geo(enemy_positions_geo, uav_positions_geo, enemy_speed, converter):
+    # 计算敌我两方的方向向量
+    #direction_unit = calculate_direction_vector(enemy_center_geo, our_center_geo, converter)
 
-    decisions = []
-    for geo in uav_positions_geo:
-        # 将无人机位置转换为局部坐标
+    updated_enemy_positions = []
+    updated_uav_positions = []
+
+    # 敌群经纬度转坐标系
+    for geo in enemy_positions_geo:
         lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(geo)
         pos_local = converter.geodetic_to_local(lat, lon, alt)
-        print(f"第{geo}个无人机的坐标:{pos_local}")
 
-        # 计算到base的距离
-        dist = np.linalg.norm(np.array(pos_local) - np.array(base_local))
 
-        # 判定转弯策略
-        if dist <= distance_threshold:
-            decisions.append(1)  # 跟随第一波转弯
-        else:
-            decisions.append(0)  # 独立转弯
 
-    return decisions
+
 
 #判断第1波无人机何时即将与敌群交错，以便得到转弯时机(目前假设第1波无人机也是先加速后减速与敌方相遇，暂留此函数）
 def predict_cross_time(base_geo, enemy_center_geo,
@@ -795,124 +776,16 @@ def predict_cross_time(base_geo, enemy_center_geo,
     # 如果超过最大时间还没满足条件，返回 None
     return None, base_local, enemy_local
 
-#
-# #根据预测的转弯点计算转弯终点（占位位置）
-# def get_uav_turning_points(enemy_positions_geo, enemy_center_geo,
-#                            uav_positions_geo, uav_center_geo,
-#                            enemy_speed, uav_speed_scalar,
-#                            uavs_speed_params,
-#                            converter,
-#                            predicted_time,
-#                            turn_time, distance_follow, detection_size, height, y_gap,
-#                            dt):
-#     #敌群经纬度、敌群中心、我方经纬度、我方中心、敌群速度、我方速度、我方速度参数列表、对象、转弯时间、无人机跟随最短距离、探测大小、高度、落差、时间片
-#
-#     # 生成无人机速度列表（每架无人机一个值180）
-#     uav_speeds_list = [uav_speed_scalar for _ in uav_positions_geo]
-#
-#     # 更新次数（目前默认1秒更新一次）
-#     steps = int(predicted_time / dt)
-#
-#
-#     final_positions_geo = second_turning_position(
-#         enemy_positions_geo,
-#         enemy_center_geo,
-#         uav_positions_geo,
-#         base_geo,
-#         enemy_speed,
-#         uavs_speed_params,
-#         turn_time,
-#         distance_follow,
-#         detection_size,
-#         height,
-#         y_gap
-#     )
-#
-#     return uav_positions_geo, final_positions_geo
 
-"""
-def plot_moving_3D(enemy_positions_geo, uav_positions_geo, enemy_center_geo, our_center_geo,
-                   enemy_speed, uav_speed_scalar, converter, total_time=60, dt=1.0):
-
-    steps = int(total_time / dt)
-    uav_speeds = [uav_speed_scalar for _ in uav_positions_geo]
-
-    # 只取前10架敌机和前10架我方无人机进行可视化
-    enemy_positions_geo = enemy_positions_geo[:10]
-    uav_positions_geo = uav_positions_geo[:10]
-    uav_speeds = uav_speeds[:10]
-
-    # 轨迹记录
-    enemy_tracks = [[] for _ in range(len(enemy_positions_geo))]
-    uav_tracks = [[] for _ in range(len(uav_positions_geo))]
-
-    for t in range(steps):
-        print(f"Step {t+1}, time {t+1}s")
-
-        # 更新位置
-        enemy_positions_geo, uav_positions_geo, new_enemy_center, new_uav_center = update_positions_geo(
-            enemy_positions_geo,
-            uav_positions_geo,
-            enemy_center_geo,
-            our_center_geo,
-            enemy_speed,
-            converter,
-            dt
-        )
-
-        print(f"敌群:{enemy_positions_geo}, 我方:{uav_positions_geo}")
-
-        # 敌机局部坐标记录
-        for i, geo in enumerate(enemy_positions_geo):
-            lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(geo)
-            local = converter.geodetic_to_local(lat, lon, alt)
-            enemy_tracks[i].append(local)
-
-        # 我方无人机局部坐标记录
-        for i, geo in enumerate(uav_positions_geo):
-            lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(geo)
-            local = converter.geodetic_to_local(lat, lon, alt)
-            uav_tracks[i].append(local)
-
-    # 绘制3D轨迹图
-    fig = plt.figure(figsize=(12, 10))
-    ax = fig.add_subplot(111, projection='3d')
-
-    # 绘制敌机轨迹
-    for i, track in enumerate(enemy_tracks):
-        xs = [p[0] for p in track]
-        ys = [p[1] for p in track]
-        zs = [p[2] for p in track]
-        ax.plot(xs, ys, zs, label=f'Enemy {i}', linestyle='--', marker='x', alpha=0.7)
-
-    # 绘制我方无人机轨迹
-    for i, track in enumerate(uav_tracks):
-        xs = [p[0] for p in track]
-        ys = [p[1] for p in track]
-        zs = [p[2] for p in track]
-        ax.plot(xs, ys, zs, label=f'UAV {i}', linestyle='-', marker='o', alpha=0.7)
-
-    ax.set_xlabel('Local X (m)')
-    ax.set_ylabel('Local Y (m)')
-    ax.set_zlabel('Altitude (m)')
-    ax.set_title('3D Trajectories of Enemy and UAV (Step by Step)')
-    ax.legend()
-    plt.tight_layout()
-    plt.show()
-"""
-
+#10. 三维打印无人机相遇的情况以便判断
 def plot_positions_with_centers(enemy_positions_geo_init, uav_positions_geo_init,
                                 enemy_positions_geo_new, uav_positions_geo_new,
                                 uav_end_geo,
                                 enemy_center_geo_init, our_center_geo_init,
                                 enemy_center_geo_new, our_center_geo_new,
                                 converter):
-    """
-    绘制初始 & 新位置的3D分布以及中心位置
-    """
-    import numpy as np
 
-    # ----------------------------------
+
     # 初始敌机点
     enemy_init_lats, enemy_init_lons, enemy_init_alts = [], [], []
     for geo in enemy_positions_geo_init:
@@ -929,7 +802,6 @@ def plot_positions_with_centers(enemy_positions_geo_init, uav_positions_geo_init
         uav_init_lons.append(lon)
         uav_init_alts.append(alt)
 
-    # ----------------------------------
     # 新敌机点
     enemy_new_lats, enemy_new_lons, enemy_new_alts = [], [], []
     for geo in enemy_positions_geo_new:
@@ -1341,30 +1213,29 @@ if __name__ == "__main__":
     enemy_center = ["28:11:34.95W", "10:30:35.24N", "55.0"]
     enemy_speed = 240
     uavs_speed = [180, 80, 80, 300, 200] #当前、加速、减速、最大、转弯速度
-    turn_time = 15
-    distance_follow = 500
-    detection_size = [1000, 1000]
+    turn_time = 15 #转弯时间
+    first_turn_time = 10 #假设第一波无人机用10秒转弯
+    distance_follow = 500 #无人机与无人机之间y轴上跟随距离
+    detection_size = [1000, 1000, 1000] #分别表示无人机xyz三个方向能探查的距离
     height = 500
-    y_gap = 200
+    y_gap = 2000 #跟随敌机距离
     dt = 1
     base_distance_threshold = 1000 #base距离阈值
     turn_distance_threshold = 500 #迎面距离阈值
-    #print(second_turning_position(enemy_geo, enemy_center, second_points, base, enemy_speed, uavs_speed,
-                                 # turn_time, distance_follow, detection_size, height, y_gap))
+
 
     # 创建局部坐标转换器
     A_lat, A_lon, A_alt = GeodeticConverter.decimal_dms_to_degrees(base)
     B_lat, B_lon, B_alt = GeodeticConverter.decimal_dms_to_degrees(enemy_center)
     converter = GeodeticConverter.GeodeticToLocalConverter(A_lat, A_lon, A_alt, B_lat, B_lon, B_alt)
 
-    uav_speed = [180 for _ in second_points]
 
     #对第2波次无人机进行分类，一部分延迟转弯，一部分独立转弯
     decision_array = classify_uav_turning(second_points, base, converter, base_distance_threshold)
 
 
-    second_iuav_points = []
-    second_duav_points = []
+    second_iuav_points = [] #独立转弯的无人机
+    second_duav_points = [] #延迟转弯的无人机
     # 打印结果
     for idx, val in enumerate(decision_array):
         if val == 1:
@@ -1401,9 +1272,13 @@ if __name__ == "__main__":
 
     print(f"爬升高度为: {height_distances:.2f} 米")
 
-    #获得相遇时敌方的坐标，我方的坐标，敌方的中心，我方的中心
-    new_enemy_points, new_uav_points, new_enemy_center, new_uav_center = update_positions_geo(enemy_geo, second_iuav_points, enemy_center, base,
+    #获得相遇时敌方的坐标，我方的坐标，敌方的中心，我方第二波次独立转弯的无人机中心
+    new_enemy_points, new_uav_points, new_enemy_center, new_uav_center = update_ipositions_geo(enemy_geo, second_iuav_points, enemy_center, base,
                                                                                               enemy_speed, converter, predict_time, predict_distance, height_distances)
+
+
+    #获得第二波次延迟转弯点无人机转弯位置
+
 
     print("敌机相遇位置:")
     for e in new_enemy_points:
@@ -1413,12 +1288,7 @@ if __name__ == "__main__":
     for u in new_uav_points:
         print(u)
 
-    test = []
-    for geo in new_uav_points:
-        lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(geo)
-        pos_local = converter.geodetic_to_local(lat, lon, alt)
-        test.append(pos_local)
-    print(f"$$$$$$$$$$$$$:{test}")
+
 
 
     # 得到按y轴排序的我方无人机队列
@@ -1444,64 +1314,5 @@ if __name__ == "__main__":
 
 
 
-
-    # plot_moving_3D(
-    #     enemy_geo,
-    #     second_points,
-    #     enemy_center,
-    #     base,
-    #     enemy_speed,
-    #     uavs_speed[0],
-    #     converter,
-    #     toal_time,
-    #     dt
-    # )
-    # uav_start_points_local, uav_end_points_local = get_uav_turning_points(
-    #     enemy_geo,
-    #     enemy_center,
-    #     second_points,
-    #     base,
-    #     enemy_speed,
-    #     uavs_speed[0],  # 无人机飞行速度标量
-    #     uavs_speed,  # 无人机速度参数列表
-    #     converter,
-    #     predicted_time,
-    #     turn_time,
-    #     distance_follow,
-    #     detection_size,
-    #     height,
-    #     y_gap,
-    #     dt
-    # )
-
-
-
-    # # 打印起点和终点
-    # for idx in range(len(uav_start_points_local)):
-    #     print(f"无人机 {idx}: 起点 local = {uav_start_points_local[idx]}, 终点 local = {uav_end_points_local[idx]}")
-    # dt = 5  # 每 5 秒更新
-    # total_time = 120  # 总共模拟时间（秒）
-    # steps = total_time // dt
-    # run_and_plot_tracking_3D(
-    #     enemy_geo,
-    #     second_points,
-    #     enemy_center,
-    #     base,
-    #     enemy_speed,
-    #     uavs_speed[0],
-    #     dt,
-    #     steps,
-    #     converter
-    # )
-
-    # enemy_positions_geo_new, uav_positions_geo_new,enemy_center,base = update_positions_geo(enemy_geo, second_points, enemy_center, base, enemy_speed, uav_speed, converter, 117)
-    #
-    # print("敌机新位置:")
-    # for e in enemy_positions_geo_new:
-    #     print(e)
-    #
-    # print("\n无人机新位置:")
-    # for u in uav_positions_geo_new:
-    #     print(u)
 
 
