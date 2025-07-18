@@ -19,7 +19,7 @@ from requests.packages import target
 import GeodeticConverter
 import sympy as sp
 import velocity_recong
-import server
+import outdata
 import dataset
 
 
@@ -609,12 +609,12 @@ def second_turning_position(enemy_geo, enemy_center, second_iuav_points, enemy_s
 
     #转换敌群坐标
     enemys = []
-    test = []
+    enemys_tmp = []
     for i, enemy in enumerate(enemy_geo):
         lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(enemy)
         local = converter.geodetic_to_local(lat, lon, alt)
         enemys.append([local, i, 0])
-        test.append(local)
+        enemys_tmp.append(local)
 
 
     # 转换敌群中心
@@ -622,20 +622,20 @@ def second_turning_position(enemy_geo, enemy_center, second_iuav_points, enemy_s
     enemy_center_local = converter.geodetic_to_local(B_lat, B_lon, B_alt)
 
     #敌群转弯结束后位置补偿
-    enemy_move_distance = enemy_speed * turn_time
+    enemy_move_distance = enemy_speed * turn_time * 2 #独立转弯及延迟转弯两次转弯的补偿
     enemy_center_local[1] = enemy_center_local[1] - enemy_move_distance
 
     # 同步补偿敌群内每个敌机坐标
     for enemy in enemys:
         enemy[0][1] -= enemy_move_distance
 
-    for te in test:
-        te[1] = te[1]- enemy_move_distance
+    for enemy in enemys_tmp:
+        enemy[1] = enemy[1]- enemy_move_distance
 
-    test_jwd = []
-    for u in test:
-        test_local = converter.local_to_geodetic_dms(u)
-        test_jwd.append(test_local)
+    enemys_afterfirst = []
+    for enemy in enemys_tmp:
+        test_local = converter.local_to_geodetic_dms(enemy)
+        enemys_afterfirst.append(test_local)
 
     # 重新计算敌群边界（新中心）
     min_x, max_x, min_y, max_y, min_z, max_z = find_edge_points(enemys)
@@ -664,7 +664,7 @@ def second_turning_position(enemy_geo, enemy_center, second_iuav_points, enemy_s
         result = converter.local_to_geodetic_dms(uav)
         uavstr.append(result)
 
-    return uavstr,test_jwd
+    return uavstr,enemys_afterfirst
 
 
 #8. 根据相遇时间（第一波与敌群相遇）获得相遇时敌方和第二波独立转弯无人机的位置
@@ -724,7 +724,7 @@ def update_ipositions_geo(enemy_positions_geo, uav_positions_geo, enemy_center_g
 
     return updated_enemy_positions, updated_uav_positions, new_geo_enemy_center, new_geo_uav_center, direction_unit, turn_second_points
 
-#因为敌我速度均很快，为了保证相遇过程中敌群一直在延迟转弯无人机视场内，紧急减速情况下的安全距离
+#9. 因为敌我速度均很快，为了保证相遇过程中敌群一直在延迟转弯无人机视场内，紧急减速情况下的安全距离
 def safety_distance (uavs_speed, enemy_speed):
     t_reduce = uavs_speed[4] / uavs_speed[2]
     dis_reduce = uavs_speed[4] ** 2 / (2 * uavs_speed[2]) + enemy_speed * t_reduce
@@ -733,7 +733,7 @@ def safety_distance (uavs_speed, enemy_speed):
     return t_reduce, dis_reduce
 
 
-#9. 根据转弯时间+相遇时间的总时间（第一波已经完成转弯）获得相遇时第二波延迟转弯无人机的位置
+#10. 根据转弯时间+相遇时间的总时间（第一波已经完成转弯）获得相遇时第二波延迟转弯无人机的位置
 def update_dposition_geo( duav_positions_geo, enemy_speed, converter, uav_distances, height_distances, uavs_speed, turn_second_points):
     updated_uav_positions = []
 
@@ -757,6 +757,20 @@ def update_dposition_geo( duav_positions_geo, enemy_speed, converter, uav_distan
         turn_second_points.append(new_geo)
 
     return  updated_uav_positions, turn_second_points
+
+
+def update_enemy_geo(enemy_position_geo, enemy_speed, converter, turn_time):
+    enemy_end_points = []
+
+    for i, enemy in enumerate(enemy_position_geo):
+        lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(enemy)
+        local = converter.geodetic_to_local(lat, lon, alt)
+        local[1] = local[1] - enemy_speed * turn_time
+        enemy_end_geo = converter.local_to_geodetic_dms(local)
+        enemy_end_points.append(enemy_end_geo)
+
+    return enemy_end_points
+
 
 
 #判断第1波无人机何时即将与敌群交错，以便得到转弯时机(目前假设第1波无人机也是先加速后减速与敌方相遇，暂留此函数）
@@ -926,7 +940,7 @@ if __name__ == "__main__":
     enemy_center = ["28:11:34.95W", "10:30:35.24N", "55.0"]
     enemy_speed = 240
     uavs_speed = [180, 80, 80, 300, 200] #当前、加速、减速、最大、转弯速度
-    turn_time = 15 #转弯时间
+    turn_time = 15 #第二波无人机转弯时间
     first_turn_time = 10 #假设第一波无人机用10秒转弯
     distance_follow = 500 #无人机与无人机之间y轴上跟随距离
     detection_size = [1000, 1000, 1000] #分别表示无人机xyz三个方向能探查的距离
@@ -989,9 +1003,8 @@ if __name__ == "__main__":
     new_enemy_points, new_iuav_points, new_enemy_center, new_uav_center, direction_unit, turn_second_points = update_ipositions_geo(enemy_geo, second_iuav_points, enemy_center, base,
                                                                                               enemy_speed, converter, predict_time, predict_distance, height_distances)
 
-    #获得第二波次延迟转弯点无人机转弯位置
+    #获得第二波次延迟转弯点无人机转弯位置,第二波延迟转弯无人机在确认第一波完成转弯后再转
     new_duav_points, turn_second_points = update_dposition_geo(second_duav_points, enemy_speed, converter, predict_distance, height_distances, uavs_speed, turn_second_points)
-
 
 
     print("敌机相遇位置:")
@@ -1003,26 +1016,25 @@ if __name__ == "__main__":
         print(u)
 
 
-
-
-    # 得到按y轴排序的我方无人机队列
-    #sort_second_points = sorted_y_points(second_iuav_points, converter)
-    #print(f"纵队最前方无人机:{sort_second_points}")
-
-
-    uav_end_points,test = second_turning_position(new_enemy_points, new_enemy_center, turn_second_points, enemy_speed, turn_time, distance_follow, detection_size, height, y_gap, converter)
+    uav_end_points,enemy_afterfirst = second_turning_position(new_enemy_points, new_enemy_center, turn_second_points, enemy_speed, turn_time, distance_follow, detection_size, height, y_gap, converter)
     print("\n无人机转弯后终点位置:")
     for v in uav_end_points:
         print(v)
 
-    server.save_uav_multi_positions(uavs_speed, enemy_speed, second_points, enemy_geo, turn_second_points, uav_end_points)
+    #当第二波延迟转弯的无人机也转弯了，那敌机的位置如下
+    enemy_end_points = update_enemy_geo(enemy_afterfirst, enemy_speed, converter, turn_time)
+
+    print("\n转弯后敌机移动终点位置:")
+    for n in enemy_end_points:
+        print(n)
 
 
+    #数据输出存储
+    outdata.save_uav_multi_positions(uavs_speed, enemy_speed, second_points, enemy_geo, turn_second_points, uav_end_points, enemy_end_points)
 
 
-
-    # 只调用一次，画初始位置和终点位置
-    plot_positions_with_centers(enemy_geo, second_points, test, new_iuav_points, uav_end_points, enemy_center, base, new_enemy_center, new_uav_center, converter)
+    # 画初始位置和第二波独立转弯后占位位置
+    plot_positions_with_centers(enemy_geo, second_points, enemy_afterfirst, new_iuav_points, uav_end_points, enemy_center, base, new_enemy_center, new_uav_center, converter)
 
 
 

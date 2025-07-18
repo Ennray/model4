@@ -7,6 +7,7 @@ def save_uav_multi_positions(
     enemy_init_positions,
     our_pre_turn_positions,
     our_post_turn_positions,
+    enemy_end_positions,
     filename="uav_full_path_record.json"
 ):
     data = {
@@ -27,5 +28,7 @@ def save_uav_multi_positions(
     with open(filename, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
+
+# def real_time_position():
 
 
