@@ -19,6 +19,7 @@ from requests.packages import target
 import GeodeticConverter
 import sympy as sp
 import velocity_recong
+import server
 
 
 
@@ -1322,7 +1323,7 @@ if __name__ == "__main__":
     for v in uav_end_points:
         print(v)
 
-
+    server.save_uav_multi_positions(uavs_speed, enemy_speed, second_points, enemy_geo, turn_second_points, uav_end_points)
 
 
 
