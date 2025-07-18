@@ -525,7 +525,7 @@ def allocate_one_ring(flag, angle_deg, tmp_num, quantity_this_ring, coord_list,
             tmp_num += 1
             print(f"占位第 {tmp_num} 个")
 
-        print(f"bianjiezhishi:{min_x, max_x, min_y, max_y, min_z, max_z}")
+       # print(f"bianjiezhishi:{min_x, max_x, min_y, max_y, min_z, max_z}")
 
     return coord_list
 
@@ -675,6 +675,7 @@ def update_ipositions_geo(enemy_positions_geo, uav_positions_geo, enemy_center_g
 
     updated_enemy_positions = []
     updated_uav_positions = []
+    turn_second_points = []
 
     # 敌群经纬度转坐标系
     for geo in enemy_positions_geo:
@@ -705,6 +706,7 @@ def update_ipositions_geo(enemy_positions_geo, uav_positions_geo, enemy_center_g
         # 竖直方向爬升
         new_geo[2] = str(float(new_geo[2]) + height_distances)
         updated_uav_positions.append(new_geo)
+        turn_second_points.append(new_geo)
 
 
     # 更新我方中心坐标
@@ -718,7 +720,7 @@ def update_ipositions_geo(enemy_positions_geo, uav_positions_geo, enemy_center_g
     new_geo_uav_center[2] = str(float(new_geo_uav_center[2]) + height_distances)
 
 
-    return updated_enemy_positions, updated_uav_positions, new_geo_enemy_center, new_geo_uav_center, direction_unit
+    return updated_enemy_positions, updated_uav_positions, new_geo_enemy_center, new_geo_uav_center, direction_unit, turn_second_points
 
 #因为敌我速度均很快，为了保证相遇过程中敌群一直在延迟转弯无人机视场内，紧急减速情况下的安全距离
 def safety_distance (uavs_speed, enemy_speed):
@@ -730,7 +732,7 @@ def safety_distance (uavs_speed, enemy_speed):
 
 
 #9. 根据转弯时间+相遇时间的总时间（第一波已经完成转弯）获得相遇时第二波延迟转弯无人机的位置
-def update_dposition_geo( duav_positions_geo, enemy_speed, converter, uav_distances, height_distances, uavs_speed):
+def update_dposition_geo( duav_positions_geo, enemy_speed, converter, uav_distances, height_distances, uavs_speed, turn_second_points):
     updated_uav_positions = []
 
     # 延迟转弯的无人机减速到0需要多少时间以及往前走多少距离
@@ -750,8 +752,9 @@ def update_dposition_geo( duav_positions_geo, enemy_speed, converter, uav_distan
         # 竖直方向爬升
         new_geo[2] = str(float(new_geo[2]) + height_distances)
         updated_uav_positions.append(new_geo)
+        turn_second_points.append(new_geo)
 
-    return  updated_uav_positions
+    return  updated_uav_positions, turn_second_points
 
 
 #判断第1波无人机何时即将与敌群交错，以便得到转弯时机(目前假设第1波无人机也是先加速后减速与敌方相遇，暂留此函数）
@@ -1290,11 +1293,12 @@ if __name__ == "__main__":
     print(f"爬升高度为: {height_distances:.2f} 米")
 
     #获得相遇时敌方的坐标，我方的坐标，敌方的中心，我方第二波次独立转弯的无人机中心
-    new_enemy_points, new_iuav_points, new_enemy_center, new_uav_center, direction_unit = update_ipositions_geo(enemy_geo, second_iuav_points, enemy_center, base,
+    new_enemy_points, new_iuav_points, new_enemy_center, new_uav_center, direction_unit, turn_second_points = update_ipositions_geo(enemy_geo, second_iuav_points, enemy_center, base,
                                                                                               enemy_speed, converter, predict_time, predict_distance, height_distances)
 
-
     #获得第二波次延迟转弯点无人机转弯位置
+    new_duav_points, turn_second_points = update_dposition_geo(second_duav_points, enemy_speed, converter, predict_distance, height_distances, uavs_speed, turn_second_points)
+
 
 
     print("敌机相遇位置:")
@@ -1302,10 +1306,10 @@ if __name__ == "__main__":
         print(e)
 
     print("\n无人机转弯位置:")
-    for u in new_iuav_points:
+    for u in turn_second_points:
         print(u)
 
-    new_duav_points = update_dposition_geo(second_duav_points, enemy_speed, converter, predict_distance, height_distances, uavs_speed)
+
 
 
     # 得到按y轴排序的我方无人机队列
@@ -1313,7 +1317,7 @@ if __name__ == "__main__":
     #print(f"纵队最前方无人机:{sort_second_points}")
 
 
-    uav_end_points,test = second_turning_position(new_enemy_points, new_enemy_center, second_iuav_points, enemy_speed, turn_time, distance_follow, detection_size, height, y_gap, converter)
+    uav_end_points,test = second_turning_position(new_enemy_points, new_enemy_center, turn_second_points, enemy_speed, turn_time, distance_follow, detection_size, height, y_gap, converter)
     print("\n无人机转弯后终点位置:")
     for v in uav_end_points:
         print(v)
