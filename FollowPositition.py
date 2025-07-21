@@ -482,8 +482,9 @@ def calculate_max_rings(total, a, b):
 #5. 分配无人机占位是按照包围圈进行的，当前函数是分配一圈无人机的策略
 def allocate_one_ring(flag, angle_deg, tmp_num, quantity_this_ring, coord_list,
                       min_x, max_x, min_y, max_y, min_z, max_z,
-                      quantity_a, quantity_b, m):
-
+                      quantity_a, quantity_b, m, distance_follow, y_gap):
+    set_y = 0
+    set_f = 0
     #print("quantity_this_ring", quantity_this_ring)
     for i in range(quantity_this_ring ):
         casei = i % 4
@@ -499,29 +500,37 @@ def allocate_one_ring(flag, angle_deg, tmp_num, quantity_this_ring, coord_list,
         else:
             flag = 0
 
+        if m == 0 :
+            set_y = 1
+            set_f = 0
+        else:
+            set_y = 0
+            set_f = 1
+
         success = False
 
         if casei == 0 and flag != 1:  # 右边
-            target_x = min_x + detection_size[0] * 0.5 + num * detection_size[0]
-            target_y = max_y + 1000 * (m + 1) * math.cos(math.radians(angle_deg)) - detection_size[0] * 0.5 * math.sin(math.radians(angle_deg))
-            target_z = max_z - 1000 * (m + 1) * math.sin(math.radians(angle_deg)) - detection_size[0] * 0.5 * math.cos(math.radians(angle_deg))
+            target_x = min_x + detection_size[0] * 0.5 + num * detection_size[0] #右边界靠内半个检测范围的位置开始放置，间距为一个x轴上的探测范围
+            target_y = max_y + (y_gap + distance_follow * m) * math.cos(math.radians(angle_deg)) - detection_size[0] * 0.5 * math.sin(math.radians(angle_deg)) #yz均靠边界向内推半个检测范围再开始放置
+            target_z = max_z - (y_gap + distance_follow * m) * math.sin(math.radians(angle_deg)) - detection_size[0] * 0.5 * math.cos(math.radians(angle_deg))
             success = True
         elif casei == 1 and flag != 2:  # 下边
             target_x = max_x - detection_size[0] * 0.5
-            target_y = max_y + 1000 * (m + 1) * math.cos(math.radians(angle_deg)) - detection_size[0] * 0.5 * math.sin(math.radians(angle_deg)) - num * 2000 * math.sin(math.radians(angle_deg))
-            target_z = max_z - 1000 * (m + 1) * math.sin(math.radians(angle_deg)) - detection_size[0] * 0.5 * math.cos(math.radians(angle_deg)) - num * 2000 * math.cos(math.radians(angle_deg))
+            target_y = max_y + (y_gap + distance_follow * m) * math.cos(math.radians(angle_deg)) - detection_size[0] * 0.5 * math.sin(math.radians(angle_deg)) - num * detection_size[1] * math.sin(math.radians(angle_deg)) #上下边上的无人机每架相隔detection_size[2]的距离，转换到yz分量
+            target_z = max_z - (y_gap + distance_follow * m) * math.sin(math.radians(angle_deg)) - detection_size[0] * 0.5 * math.cos(math.radians(angle_deg)) - num * detection_size[1] * math.cos(math.radians(angle_deg))
             success = True
         elif casei == 2 and flag != 1:  # 左边
             target_x = max_x - detection_size[0] * 0.5 - num * detection_size[0]
-            target_y = min_y + 1000 * (m + 1) * math.cos(math.radians(angle_deg)) + detection_size[0] * 0.5 * math.sin(math.radians(angle_deg))
-            target_z = min_z - 1000 * (m + 1) * math.sin(math.radians(angle_deg)) + detection_size[0] * 0.5 * math.cos(math.radians(angle_deg))
+            target_y = min_y + (y_gap + distance_follow * m) * math.cos(math.radians(angle_deg)) + detection_size[0] * 0.5 * math.sin(math.radians(angle_deg))
+            target_z = min_z - (y_gap + distance_follow * m) * math.sin(math.radians(angle_deg)) + detection_size[0] * 0.5 * math.cos(math.radians(angle_deg))
             success = True
         elif casei == 3 and flag != 2:  # 上边
             target_x = min_x + detection_size[0] * 0.5
-            target_y = min_y + 1000 * (m + 1) * math.cos(math.radians(angle_deg)) + detection_size[0] * 0.5 * math.sin(math.radians(angle_deg)) + num * 2000 * math.sin(math.radians(angle_deg))
-            target_z = min_z - 1000 * (m + 1) * math.sin(math.radians(angle_deg)) + detection_size[0] * 0.5 * math.cos(math.radians(angle_deg)) + num * 2000 * math.sin(math.radians(angle_deg))
+            target_y = min_y + (y_gap + distance_follow * m) * math.cos(math.radians(angle_deg)) + detection_size[0] * 0.5 * math.sin(math.radians(angle_deg)) + num * detection_size[1] * math.sin(math.radians(angle_deg))
+            target_z = min_z - (y_gap + distance_follow * m) * math.sin(math.radians(angle_deg)) + detection_size[0] * 0.5 * math.cos(math.radians(angle_deg)) + num * detection_size[1] * math.sin(math.radians(angle_deg))
             success = True
 
+        print(f"mmmmmmmmmmmmmmmmm:{m}  {set_y}  {(y_gap * set_y + distance_follow * set_f)}  {1000 * (m+1)}")
         if success:
             coord_list.append((target_x, target_y, target_z))
             tmp_num += 1
@@ -534,7 +543,7 @@ def allocate_one_ring(flag, angle_deg, tmp_num, quantity_this_ring, coord_list,
 
 #6. 占位总分配策略，包括如何分配哪一层，如何分配哪一圈
 def allocation_policy_all(total, min_x, max_x, min_y, max_y, min_z, max_z,
-                          angle_deg, quantity_a, quantity_b):
+                          angle_deg, quantity_a, quantity_b, distance_follow, y_gap):
 
     coord_list = []
     tmp_num_total = 0
@@ -573,7 +582,7 @@ def allocation_policy_all(total, min_x, max_x, min_y, max_y, min_z, max_z,
             # 调用分配一圈函数
             coord_list = allocate_one_ring(flag, angle_deg, tmp_num, quantity_this_ring,
                                            coord_list, min_x_n, max_x_n, min_y_n, max_y_n, min_z_n, max_z_n,
-                                           quantity_a, quantity_b, j)
+                                           quantity_a, quantity_b, j, distance_follow, y_gap)
             flag = 0
 
             tmp_num_total = len(coord_list)
@@ -581,10 +590,10 @@ def allocation_policy_all(total, min_x, max_x, min_y, max_y, min_z, max_z,
             # 更新边界（内缩）
             min_x_n += detection_size[0]
             max_x_n -= detection_size[0]
-            min_y_n += detection_size[1]
-            max_y_n -= detection_size[1]
-            min_z_n += detection_size[0]
-            max_z_n -= detection_size[0]
+            min_y_n += detection_size[1] * math.sin(math.radians(angle_deg))
+            max_y_n -= detection_size[1] * math.sin(math.radians(angle_deg))
+            min_z_n += detection_size[1] * math.cos(math.radians(angle_deg))
+            max_z_n -= detection_size[1] * math.cos(math.radians(angle_deg))
 
             print(f"当前总数: {tmp_num_total}, 边界更新: min_x={min_x}, max_x={max_x}")
 
@@ -649,14 +658,21 @@ def second_turning_position(enemy_geo, enemy_center, second_iuav_points, enemy_s
     # 计算最外圈每一条边理论上最大无人机数以及每一层最大无人机数
     diagonal_length = math.sqrt((max_z - min_z) ** 2 + (max_y - min_y) ** 2)
     quantity_a = int((max_x - min_x - detection_size[0]) / detection_size[0]) + 1
-    quantity_b = int((diagonal_length - detection_size [1]) / detection_size[1])  #因为起点在上下边缘上，可认为初始就能有两个点
+    quantity_b = int((diagonal_length - detection_size [1]) / detection_size[1]) + 1 #因为起点在上下边缘上，可认为初始就能有两个点
+    if ()  > detection_size[0]:
+        quantity_a += 1
+    if ((diagonal_length - detection_size [1]) % detection_size[1]) > detection_size[1]:
+        quantity_b += 1
+
     quantity = quantity_b * quantity_a
+
+    print(f"显示长边以及短边的长度：{max_x - min_x - detection_size[0]} &&&&& {diagonal_length - detection_size[1]}<UNK>")
 
     print(f"显示圈上无人机数:{quantity} 左右两条边只能放{quantity_a}个，上下两条边只能放{quantity_b}个")
 
     #占位分配结束得到目标位置
     target= allocation_policy_all(total, min_x, max_x, min_y, max_y, min_z, max_z,
-                               angle_deg, quantity_a, quantity_b)
+                               angle_deg, quantity_a, quantity_b, distance_follow, y_gap)
 
     #转回经纬度
     uavstr = []
@@ -943,7 +959,7 @@ if __name__ == "__main__":
     turn_time = 15 #第二波无人机转弯时间
     first_turn_time = 10 #假设第一波无人机用10秒转弯
     distance_follow = 500 #无人机与无人机之间y轴上跟随距离
-    detection_size = [1000, 1000, 1000] #分别表示无人机xyz三个方向能探查的距离
+    detection_size = [1000, 2000] #分别表示无人机纵向上与横向上的间距
     height = 500
     y_gap = 2000 #跟随敌机距离
     dt = 1
