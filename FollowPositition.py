@@ -659,10 +659,10 @@ def second_turning_position(enemy_geo, enemy_center, second_iuav_points, enemy_s
     diagonal_length = math.sqrt((max_z - min_z) ** 2 + (max_y - min_y) ** 2)
     quantity_a = int((max_x - min_x - detection_size[0]) / detection_size[0]) + 1
     quantity_b = int((diagonal_length - detection_size [1]) / detection_size[1]) + 1 #因为起点在上下边缘上，可认为初始就能有两个点
-    if ()  > detection_size[0]:
-        quantity_a += 1
-    if ((diagonal_length - detection_size [1]) % detection_size[1]) > detection_size[1]:
-        quantity_b += 1
+    # if ()  > detection_size[0]:
+    #     quantity_a += 1
+    # if ((diagonal_length - detection_size [1]) % detection_size[1]) > detection_size[1]:
+    #     quantity_b += 1
 
     quantity = quantity_b * quantity_a
 
@@ -965,6 +965,8 @@ if __name__ == "__main__":
     dt = 1
     base_distance_threshold = 1000 #base距离阈值
     turn_distance_threshold = 500 #迎面距离阈值
+
+    #敌方中心，敌方范围上下左右前后，
 
 
     # 创建局部坐标转换器
