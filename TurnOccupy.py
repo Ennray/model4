@@ -66,7 +66,6 @@ def geo_to_degrees(geo):
 
 #3D绘图便于观察
 def plot_positions_with_centers(uav_first_geo_init, uav_second_geo_init,
-                                enemy_center_geo_init, our_center_geo_init,
                                 converter):
 
     #==================================点位转坐标=============================================
@@ -78,8 +77,8 @@ def plot_positions_with_centers(uav_first_geo_init, uav_second_geo_init,
 
     #===================================中心转坐标============================================
     # 初始中心（已知）
-    enemy_center_init_lat, enemy_center_init_lon, enemy_center_init_alt = GeodeticConverter.decimal_dms_to_degrees(enemy_center_geo_init)
-    our_center_init_lat, our_center_init_lon, our_center_init_alt = GeodeticConverter.decimal_dms_to_degrees(our_center_geo_init)
+    #enemy_center_init_lat, enemy_center_init_lon, enemy_center_init_alt = GeodeticConverter.decimal_dms_to_degrees(enemy_center_geo_init)
+    #our_center_init_lat, our_center_init_lon, our_center_init_alt = GeodeticConverter.decimal_dms_to_degrees(our_center_geo_init)
 
 
     #=====================================绘图==============================================
@@ -102,8 +101,8 @@ def plot_positions_with_centers(uav_first_geo_init, uav_second_geo_init,
 
     # 打印坐标信息
     print("=== 初始中心坐标 ===")
-    print(f"Enemy Center Init: lat={enemy_center_init_lat:.6f}, lon={enemy_center_init_lon:.6f}, alt={enemy_center_init_alt:.1f}")
-    print(f"Our Center Init: lat={our_center_init_lat:.6f}, lon={our_center_init_lon:.6f}, alt={our_center_init_alt:.1f}")
+    #print(f"Enemy Center Init: lat={enemy_center_init_lat:.6f}, lon={enemy_center_init_lon:.6f}, alt={enemy_center_init_alt:.1f}")
+    #print(f"Our Center Init: lat={our_center_init_lat:.6f}, lon={our_center_init_lon:.6f}, alt={our_center_init_alt:.1f}")
 
 
 
@@ -113,7 +112,7 @@ def plot_positions_with_centers(uav_first_geo_init, uav_second_geo_init,
 if __name__ == "__main__":
     #=============================初始化数据==================================
     data = dataset()
-    print(f"测试数据调用:{data['basepoint']}和敌机 {data['enemy_approx']}")
+    #print(f"测试数据调用:{data['first_uavs']}和敌机 {data['second_uavs']}")
 
 
 
@@ -124,7 +123,7 @@ if __name__ == "__main__":
 
 
     #===========================处理第2波次无人机===============================
-    plot_positions_with_centers(data['first_num'],data['second_num'],converter)
+    plot_positions_with_centers(data['first_uavs'],data['second_uavs'],converter)
    # sorted_second = sorted_y_points(second_geo, converter) #对第2波次无人机按y从小到大进行排序，得到sorted_second[0]就是末尾那架无人机
 
 

@@ -7,7 +7,8 @@ conda create -n model4 python=3.10
 
 conda activate model4
 
-pip install numpy matplotlib shapely scipy geopy sympy pyproj
+pip install numpy matplotlib shapely scipy geopy sympy pyproj scikit-learn
+
 ```
 需要GeodeticConverter.py文件
 
