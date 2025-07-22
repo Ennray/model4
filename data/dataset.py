@@ -1,5 +1,46 @@
 def dataset():
-    first_uav = [
+    # 基准点坐标
+    basepoint = [
+        "29:47:22.84N",
+        "120:38:14.82E",
+        "5005.0"
+    ]
+    
+    # 最小检测范围
+    min_detect = [900, 600]
+    
+    # 清晰检测范围  
+    clear_detect = [200, 160]
+    
+    # 速度参数
+    maximum_speed = 300
+    minimum_speed = 200
+    speed = 240
+    
+    # 敌方近似位置
+    enemy_approx = [
+        "29:28:00.11N",
+        "128:19:36.77E",
+        "5000.0"
+    ]
+    
+    # 半径数组
+    radii = [2500, 2350, 2550, 2500, 2400, 2400, 2480, 2380]
+    
+    # 敌方数量
+    enemy_number = 300
+    
+    # 敌方经度范围
+    enemy_lonrange = ['29:27:52:54N', '29:28:07:68N']
+    
+    # 敌方纬度范围
+    enemy_latrange = ['128:19:28:48E', '128:19:45:06E']
+    
+    # 第一批无人机数量
+    first_num = 45
+    
+    # 第一批无人机坐标
+    first_uavs = [
         [
             "29:46:10.12N",
             "120:38:15.70E",
@@ -225,10 +266,13 @@ def dataset():
             "120:38:13.47E",
             "3739.32"
         ]
-
     ]
-
-    second_uav = [
+    
+    # 第二批无人机数量
+    second_num = 30
+    
+    # 第二批无人机坐标
+    second_uavs = [
         [
             "29:47:28.25N",
             "120:37:56.47E",
@@ -379,7 +423,22 @@ def dataset():
             "120:28:58.06E",
             "5959.26"
         ]
-
     ]
-
-    return first_uav, second_uav
+    
+    return {
+        'basepoint': basepoint,
+        'min_detect': min_detect,
+        'clear_detect': clear_detect,
+        'maximum_speed': maximum_speed,
+        'minimum_speed': minimum_speed,
+        'speed': speed,
+        'enemy_approx': enemy_approx,
+        'radii': radii,
+        'enemy_number': enemy_number,
+        'enemy_lonrange': enemy_lonrange,
+        'enemy_latrange': enemy_latrange,
+        'first_num': first_num,
+        'first_uavs': first_uavs,
+        'second_num': second_num,
+        'second_uavs': second_uavs
+    }
