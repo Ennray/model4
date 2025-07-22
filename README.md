@@ -30,7 +30,3 @@ pip install numpy matplotlib shapely scipy geopy sympy pyproj
     ↓
 输出：无人机转弯顺序表 + 每架无人机的详细轨迹 + 推荐速度
 ```
-
-# 问题
-
-- [ ] 以地球中心为原点建立xyz坐标系会导致海拔高度相比与地球半径影响很小，导致无法计算得出正确的方向向量。
