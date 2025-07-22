@@ -1,5 +1,5 @@
 def dataset():
-    enemy_geo = [
+    first_uav = [
         [
             "29:46:10.12N",
             "120:38:15.70E",
@@ -382,4 +382,4 @@ def dataset():
 
     ]
 
-    return enemy_geo, second_uav
+    return first_uav, second_uav

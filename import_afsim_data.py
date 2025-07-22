@@ -18,10 +18,10 @@ def update_dataset():
     
     # 生成新的dataset.py内容
     dataset_content = '''def dataset():
-    enemy_geo = [
+    first_uav = [
 '''
     
-    # 添加first_uavs数据到enemy_geo
+    # 添加first_uavs数据到first_uav
     for i, uav in enumerate(first_uavs):
         lat, lon, alt = uav[0], uav[1], uav[2]
         if i == len(first_uavs) - 1:
@@ -46,7 +46,7 @@ def update_dataset():
     dataset_content += '''
     ]
 
-    return enemy_geo, second_uav
+    return first_uav, second_uav
 '''
     
     # 写入新的dataset.py文件
