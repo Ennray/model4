@@ -26,10 +26,10 @@ def update_dataset():
     
     # 生成新的dataset.py内容
     dataset_content = '''def dataset():
-    # 基准点坐标
+    # 基准点坐标 (经度纬度高度)
     basepoint = [
-        "''' + afsim_data.get('basepoint', ['', '', ''])[0] + '''",
         "''' + afsim_data.get('basepoint', ['', '', ''])[1] + '''",
+        "''' + afsim_data.get('basepoint', ['', '', ''])[0] + '''",
         "''' + afsim_data.get('basepoint', ['', '', ''])[2] + '''"
     ]
     
@@ -44,10 +44,10 @@ def update_dataset():
     minimum_speed = ''' + str(afsim_data.get('minimum_speed', 200)) + '''
     speed = ''' + str(afsim_data.get('speed', 240)) + '''
     
-    # 敌方近似位置
+    # 敌方近似位置 (经度纬度高度)
     enemy_approx = [
-        "''' + afsim_data.get('enemy_approx', ['', '', ''])[0] + '''",
         "''' + afsim_data.get('enemy_approx', ['', '', ''])[1] + '''",
+        "''' + afsim_data.get('enemy_approx', ['', '', ''])[0] + '''",
         "''' + afsim_data.get('enemy_approx', ['', '', ''])[2] + '''"
     ]
     
@@ -66,34 +66,34 @@ def update_dataset():
     # 第一批无人机数量
     first_num = ''' + str(afsim_data.get('first_num', 45)) + '''
     
-    # 第一批无人机坐标
+    # 第一批无人机坐标 (经度纬度高度)
     first_uavs = [
 '''
     
-    # 添加first_uavs数据
+    # 添加first_uavs数据 (改为经度纬度高度顺序)
     for i, uav in enumerate(first_uavs):
         lat, lon, alt = uav[0], uav[1], uav[2]
         if i == len(first_uavs) - 1:
-            dataset_content += f'        [\n            "{lat}",\n            "{lon}",\n            "{alt}"\n        ]\n'
+            dataset_content += f'        [\n            "{lon}",\n            "{lat}",\n            "{alt}"\n        ]\n'
         else:
-            dataset_content += f'        [\n            "{lat}",\n            "{lon}",\n            "{alt}"\n        ],\n'
+            dataset_content += f'        [\n            "{lon}",\n            "{lat}",\n            "{alt}"\n        ],\n'
     
     dataset_content += '''    ]
     
     # 第二批无人机数量
     second_num = ''' + str(afsim_data.get('second_num', 30)) + '''
     
-    # 第二批无人机坐标
+    # 第二批无人机坐标 (经度纬度高度)
     second_uavs = [
 '''
     
-    # 添加second_uavs数据
+    # 添加second_uavs数据 (改为经度纬度高度顺序)
     for i, uav in enumerate(second_uavs):
         lat, lon, alt = uav[0], uav[1], uav[2]
         if i == len(second_uavs) - 1:
-            dataset_content += f'        [\n            "{lat}",\n            "{lon}",\n            "{alt}"\n        ]\n'
+            dataset_content += f'        [\n            "{lon}",\n            "{lat}",\n            "{alt}"\n        ]\n'
         else:
-            dataset_content += f'        [\n            "{lat}",\n            "{lon}",\n            "{alt}"\n        ],\n'
+            dataset_content += f'        [\n            "{lon}",\n            "{lat}",\n            "{alt}"\n        ],\n'
     
     dataset_content += '''    ]
     

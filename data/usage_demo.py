@@ -32,11 +32,11 @@ def demo_usage():
     print(f"\n📍 坐标示例:")
     if data['first_uavs']:
         uav1 = data['first_uavs'][0]
-        print(f"  第1架无人机位置: 纬度{uav1[0]}, 经度{uav1[1]}, 高度{uav1[2]}m")
+        print(f"  第1架无人机位置: 经度{uav1[0]}, 纬度{uav1[1]}, 高度{uav1[2]}m")
     
     if data['second_uavs']:
         uav2 = data['second_uavs'][0]  
-        print(f"  第2批第1架位置: 纬度{uav2[0]}, 经度{uav2[1]}, 高度{uav2[2]}m")
+        print(f"  第2批第1架位置: 经度{uav2[0]}, 纬度{uav2[1]}, 高度{uav2[2]}m")
     
     # 示例：批量处理坐标
     print(f"\n📊 数据统计:")
