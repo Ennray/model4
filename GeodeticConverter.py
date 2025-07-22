@@ -233,7 +233,6 @@ if __name__ == "__main__":
     # 示例1: 将C点从局部坐标转换为经纬度高程
     C_local = np.array([100, 200, 10])  # 局部坐标系中的坐标(x=100m东, y=200m北, z=10m上)
     result = converter.local_to_geodetic_dms(C_local)
-    result += result
     print(result)
     # print(result)
     # print(f"C点局部坐标: {C_local} 米")
