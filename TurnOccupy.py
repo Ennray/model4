@@ -80,15 +80,16 @@ def max_distance(basepoint, enemy_center, lat_range, lon_range, convernter):
     pos_sw = to_local(sw)
     pos_base = to_local(basepoint)
 
-    # 计算与 base 的欧氏距离
-    def euclidean(p1, p2):
-        return np.linalg.norm(np.array(p1) - np.array(p2))
+
+    #计算与base的y轴距离
+    def euclidean_y(p1,p2):
+        return p2[1] - p1[1]
 
     distances = [
-        euclidean(pos_base, pos_ne),
-        euclidean(pos_base, pos_se),
-        euclidean(pos_base, pos_nw),
-        euclidean(pos_base, pos_sw)
+        euclidean_y(pos_base, pos_ne),
+        euclidean_y(pos_base, pos_se),
+        euclidean_y(pos_base, pos_nw),
+        euclidean_y(pos_base, pos_sw)
     ]
     distances = max(distances)
     return distances
@@ -179,7 +180,7 @@ if __name__ == "__main__":
     print("ne,se,nw,sw,enemy_approx", ne, se, nw, sw, data['enemy_approx'])
 
     max_distance = max_distance(data['basepoint'], data['enemy_approx'], data['enemy_latrange'], data['enemy_lonrange'], converter)
-    print(f"max_distance = {max_distance}")
+    print(f"max_distance, distances2 = {max_distance} ")
 
 
     plot_positions_with_centers(data['first_uavs'], data['second_uavs'], data['enemy_approx'], ne, se, nw, sw,  converter)
