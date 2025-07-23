@@ -2,6 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import math
 import sympy as sp
+from sympy.physics.units import acceleration
+
 import velocity_recong
 from sklearn.cluster import DBSCAN
 import plotly.graph_objs as go
@@ -64,21 +66,22 @@ def get_enemy_edges(enemy_center, lat_range, lon_range):
     return ne, se, nw, sw
 
 
+
+def to_local(pos_dms, converter):
+    lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(pos_dms)
+    return converter.geodetic_to_local(lat, lon, alt)
+
+
 #计算第1波无人机距离敌群的最远距离
-def max_distance(basepoint, enemy_center, lat_range, lon_range, convernter):
+def max_distance(basepoint, enemy_center, lat_range, lon_range, converter):
     ne, se, nw, sw = get_enemy_edges(enemy_center, lat_range, lon_range)
     max_distance = 0
 
-    # 将五个点转换为坐标
-    def to_local(pos_dms):
-        lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(pos_dms)
-        return converter.geodetic_to_local(lat, lon, alt)
-
-    pos_ne = to_local(ne)
-    pos_se = to_local(se)
-    pos_nw = to_local(nw)
-    pos_sw = to_local(sw)
-    pos_base = to_local(basepoint)
+    pos_ne = to_local(ne, converter)
+    pos_se = to_local(se, converter)
+    pos_nw = to_local(nw, converter)
+    pos_sw = to_local(sw, converter)
+    pos_base = to_local(basepoint, converter)
 
 
     #计算与base的y轴距离
@@ -93,6 +96,23 @@ def max_distance(basepoint, enemy_center, lat_range, lon_range, convernter):
     ]
     distances = max(distances)
     return distances
+
+
+#求解探测到敌方最后沿时的时间
+def function_last_detection_time(uav_speed, enemy_speed, max_distances, detect_distances):
+    relative_speed = uav_speed + enemy_speed
+    time = (max_distances - detect_distances ) / relative_speed
+    return time
+
+
+#计算最后一架无人机需要飞出的总距离
+def last_uav_distance(basepoint, uavpoint, uav_speed, enemy_speed, max_distances, detect_distances, converter):
+    pos_base = to_local(basepoint, converter)
+
+    dis_uav_base = pos_base[1] - uavpoint
+    time = function_last_detection_time(uav_speed, enemy_speed, max_distances, detect_distances)
+    dis_last_uav = dis_uav_base + uav_speed * time + detect_distances
+    return dis_last_uav
 
 
 #纬经高转化为坐标轴分量
@@ -159,9 +179,8 @@ def plot_positions_with_centers(uav_first_geo_init, uav_second_geo_init,
 if __name__ == "__main__":
     #=============================初始化数据==================================
     data = dataset()
-    print(f"敌机 {data['enemy_approx']}")
-
-
+    acceleration = 80 #加速度减速度均设为80
+    
 
     #============================创建局部坐标系================================
     A_lat, A_lon, A_alt = GeodeticConverter.decimal_dms_to_degrees(data['basepoint'])
@@ -177,10 +196,17 @@ if __name__ == "__main__":
     sorted_second = sorted_y_points(data['second_uavs'], converter) #对第2波次无人机按y从小到大进行排序，得到sorted_second[0]就是末尾那架无人机
 
     ne, se, nw, sw = get_enemy_edges(data['enemy_approx'], data['enemy_latrange'], data['enemy_lonrange']) #得到敌机边界四个角
-    print("ne,se,nw,sw,enemy_approx", ne, se, nw, sw, data['enemy_approx'])
+    #print("ne,se,nw,sw,enemy_approx", ne, se, nw, sw, data['enemy_approx'])
 
-    max_distance = max_distance(data['basepoint'], data['enemy_approx'], data['enemy_latrange'], data['enemy_lonrange'], converter)
-    print(f"max_distance, distances2 = {max_distance} ")
+    max_distance = max_distance(data['basepoint'], data['enemy_approx'], data['enemy_latrange'], data['enemy_lonrange'], converter) #求得最远y轴距离
+    # print(f"max_distance, distances2 = {max_distance} ")
+
+    # time_detect = function_last_detection_time(data['minimum_speed'], data['speed'], max_distance, data['min_detect'][0])
+    # print("time_detect = ", time_detect, data['min_detect'][0])
+
+    last_uav_distance = last_uav_distance(data['basepoint'], sorted_second[0][0][1], data['minimum_speed'], data['speed'], max_distance, data['min_detect'][0], converter) #求得第2波次无人机纵队最后的无人机需要提前飞出的距离
+    # print("last_uav_distance", last_uav_distance)
+    # print("basepoint", data['basepoint'], sorted_second[0][0][1])
 
 
     plot_positions_with_centers(data['first_uavs'], data['second_uavs'], data['enemy_approx'], ne, se, nw, sw,  converter)
