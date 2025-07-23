@@ -34,10 +34,7 @@ def update_dataset():
     ]
     
     # 最小检测范围
-    min_detect = ''' + str(afsim_data.get('min_detect', [900, 600])) + '''
-    
-    # 清晰检测范围  
-    clear_detect = ''' + str(afsim_data.get('clear_detect', [200, 160])) + '''
+    detect_distance = ''' + str(afsim_data.get('detect_distance', 30000)) + '''
     
     # 速度参数
     maximum_speed = ''' + str(afsim_data.get('maximum_speed', 300)) + '''
@@ -99,8 +96,7 @@ def update_dataset():
     
     return {
         'basepoint': basepoint,
-        'min_detect': min_detect,
-        'clear_detect': clear_detect,
+        'detect_distance': detect_distance,
         'maximum_speed': maximum_speed,
         'minimum_speed': minimum_speed,
         'speed': speed,

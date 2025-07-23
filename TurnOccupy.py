@@ -180,7 +180,7 @@ if __name__ == "__main__":
     #=============================初始化数据==================================
     data = dataset()
     acceleration = 80 #加速度减速度均设为80
-    
+
 
     #============================创建局部坐标系================================
     A_lat, A_lon, A_alt = GeodeticConverter.decimal_dms_to_degrees(data['basepoint'])
@@ -199,13 +199,13 @@ if __name__ == "__main__":
     #print("ne,se,nw,sw,enemy_approx", ne, se, nw, sw, data['enemy_approx'])
 
     max_distance = max_distance(data['basepoint'], data['enemy_approx'], data['enemy_latrange'], data['enemy_lonrange'], converter) #求得最远y轴距离
-    # print(f"max_distance, distances2 = {max_distance} ")
+    print(f"max_distance, distances2 = {max_distance} ")
 
-    # time_detect = function_last_detection_time(data['minimum_speed'], data['speed'], max_distance, data['min_detect'][0])
-    # print("time_detect = ", time_detect, data['min_detect'][0])
+    time_detect = function_last_detection_time(data['minimum_speed'], data['speed'], max_distance, data['detect_distance'])
+    print("time_detect = ", time_detect, "*******", data['detect_distance'])
 
-    last_uav_distance = last_uav_distance(data['basepoint'], sorted_second[0][0][1], data['minimum_speed'], data['speed'], max_distance, data['min_detect'][0], converter) #求得第2波次无人机纵队最后的无人机需要提前飞出的距离
-    # print("last_uav_distance", last_uav_distance)
+    last_uav_distance = last_uav_distance(data['basepoint'], sorted_second[0][0][1], data['minimum_speed'], data['speed'], max_distance, data['detect_distance'], converter) #求得第2波次无人机纵队最后的无人机需要提前飞出的距离
+    print("last_uav_distance", last_uav_distance)
     # print("basepoint", data['basepoint'], sorted_second[0][0][1])
 
 
