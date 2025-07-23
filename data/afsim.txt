@@ -31,11 +31,11 @@
         2380
     ],
     "enemy_number": 300,
-    "enemy_lonrange": [
+    "enemy_latrange": [
         "29:27:52:54N",
         "29:28:07:68N"
     ],
-    "enemy_latrange": [
+    "enemy_lonrange": [
         "128:19:28:48E",
         "128:19:45:06E"
     ],

@@ -31,10 +31,10 @@ def dataset():
     enemy_number = 300
     
     # 敌方经度范围
-    enemy_lonrange = ['29:27:52:54N', '29:28:07:68N']
+    enemy_lonrange = ['128:19:28:48E', '128:19:45:06E']
     
     # 敌方纬度范围
-    enemy_latrange = ['128:19:28:48E', '128:19:45:06E']
+    enemy_latrange = ['29:27:52:54N', '29:28:07:68N']
     
     # 第一批无人机数量
     first_num = 45
