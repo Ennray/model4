@@ -105,7 +105,7 @@ def function_last_detection_time(uav_speed, enemy_speed, max_distances, detect_d
     return time
 
 
-#计算最后一架无人机需要飞出的总距离
+#计算最后一架无人机需要飞出的总距离(暂时用不上)
 def last_uav_distance(basepoint, uavpoint, uav_speed, enemy_speed, max_distances, detect_distances, converter):
     pos_base = to_local(basepoint, converter)
 
@@ -113,6 +113,79 @@ def last_uav_distance(basepoint, uavpoint, uav_speed, enemy_speed, max_distances
     time = function_last_detection_time(uav_speed, enemy_speed, max_distances, detect_distances)
     dis_last_uav = dis_uav_base + uav_speed * time + detect_distances
     return dis_last_uav
+
+
+#敌我同时推进，每 step_time 秒更新一次位置，重建 converter。
+def simulate_relative_motion(uav_start, enemy_start, basepoint, uav_speed, enemy_speed, total_time, step_time=10):
+
+
+    steps = total_time // step_time
+    delta_uav = uav_speed * step_time
+    delta_enemy = enemy_start * step_time
+
+    # 当前地理位置
+    uav_lat, uav_lon, uav_alt = GeodeticConverter.decimal_dms_to_degrees(uav_start)
+    enemy_lat, enemy_lon, enemy_alt = GeodeticConverter.decimal_dms_to_degrees(enemy_start)
+    base_lat, base_lon, base_alt = GeodeticConverter.decimal_dms_to_degrees(basepoint)
+
+    uav_positions = []
+    enemy_positions = []
+    converters = []
+
+    for i in range(int(steps)):
+        # 创建当前局部坐标系
+        converter = GeodeticToLocalConverter(base_lat, base_lon, base_alt, enemy_lat, enemy_lon, enemy_alt)
+
+        # 当前位置 → local
+        uav_local = converter.geodetic_to_local(uav_lat, uav_lon, uav_alt)
+        enemy_local = converter.geodetic_to_local(enemy_lat, enemy_lon, enemy_alt)
+
+        # 按 y 轴推进（默认 y 轴方向是 base → enemy_center）
+        uav_local[1] += delta_uav
+        enemy_local[1] += delta_enemy
+
+        # local → 地理坐标
+        uav_lat, uav_lon, uav_alt = converter.local_to_geodetic(uav_local)
+        enemy_lat, enemy_lon, enemy_alt = converter.local_to_geodetic(enemy_local)
+
+        # 记录每一步坐标与 converter
+        uav_positions.append(degrees_to_dms(uav_lat, uav_lon, uav_alt))
+        enemy_positions.append(degrees_to_dms(enemy_lat, enemy_lon, enemy_alt))
+        converters.append(converter)
+
+    return converters, uav_positions, enemy_positions
+
+
+#纵队最后一架无人机的飞行策略
+def last_uav_move_strategy(uav_speed, uav_max_speed, enemy_speed, max_distances, detect_distances, uavpoint, basepoint, enemy_center, acceleration, converter):
+    time = function_last_detection_time(uav_speed, enemy_speed, max_distances, detect_distances)
+
+    lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(uavpoint)
+    uav_local = converter.geodetic_to_local(lat, lon, alt)
+
+    time_acc = (uav_max_speed - uav_speed) / acceleration  # 得到加速时间
+    distance_acc = (uav_max_speed ** 2 - uav_speed ** 2) / (2 * acceleration)  # 得到加速期间前进的距离
+
+    uav_local[1] = uav_local[1] + uav_speed * time + distance_acc
+    new_uav_local = uav_local
+    new_geo = converter.local_to_geodetic_dms(new_uav_local)
+    print("new_geo", new_geo)
+
+    enemy_center_lat, enemy_center_lon, enemy_center_alt = GeodeticConverter.decimal_dms_to_degrees(enemy_center)
+    pos_enemy_center = converter.geodetic_to_local(enemy_center_lat, enemy_center_lon, enemy_center_alt)
+
+    pos_enemy_center[1] = pos_enemy_center[1] - enemy_speed * (time +time_acc)
+    new_geo_enemy_center = converter.local_to_geodetic_dms(pos_enemy_center)
+
+
+
+
+    return new_geo, new_geo_enemy_center
+
+
+
+
+
 
 
 #纬经高转化为坐标轴分量
@@ -128,7 +201,7 @@ def geo_to_degrees(geo):
 
 #3D绘图便于观察
 def plot_positions_with_centers(uav_first_geo_init, uav_second_geo_init,
-                                enemy_center_init, ne, se, nw, sw,
+                                enemy_center_init, last_uav_point, last_enemy_center,
                                 converter):
 
     #==================================点位转坐标=============================================
@@ -142,10 +215,12 @@ def plot_positions_with_centers(uav_first_geo_init, uav_second_geo_init,
     #===================================中心转坐标============================================
     # 初始中心（已知）
     enemy_center_init_lat, enemy_center_init_lon, enemy_center_init_alt = GeodeticConverter.decimal_dms_to_degrees(enemy_center_init)
-    ne_lat, ne_lon, ne_alt = GeodeticConverter.decimal_dms_to_degrees(ne)
-    se_lat, se_lon, se_alt = GeodeticConverter.decimal_dms_to_degrees(se)
-    nw_lat, nw_lon, nw_alt = GeodeticConverter.decimal_dms_to_degrees(nw)
-    sw_lat, sw_lon, sw_alt = GeodeticConverter.decimal_dms_to_degrees(sw)
+    last_enemy_center_lat, last_enemy_center_lon, last_enemy_center_alt = GeodeticConverter.decimal_dms_to_degrees(last_enemy_center)
+    last_uav_lat, last_uav_lon, last_uav_alt = GeodeticConverter.decimal_dms_to_degrees(last_uav_point)
+    # ne_lat, ne_lon, ne_alt = GeodeticConverter.decimal_dms_to_degrees(ne)
+    # se_lat, se_lon, se_alt = GeodeticConverter.decimal_dms_to_degrees(se)
+    # nw_lat, nw_lon, nw_alt = GeodeticConverter.decimal_dms_to_degrees(nw)
+    # sw_lat, sw_lon, sw_alt = GeodeticConverter.decimal_dms_to_degrees(sw)
 
     #our_center_init_lat, our_center_init_lon, our_center_init_alt = GeodeticConverter.decimal_dms_to_degrees(our_center_geo_init)
 
@@ -162,10 +237,14 @@ def plot_positions_with_centers(uav_first_geo_init, uav_second_geo_init,
 
     # 初始敌群
     ax.scatter(enemy_center_init_lat, enemy_center_init_lon, enemy_center_init_alt, c='red', marker='*', label='Enemy Init', s=50)
-    ax.scatter(ne_lat, ne_lon, ne_alt, c='green', marker='x', label='NE', s=50)
-    ax.scatter(se_lat, se_lon, se_alt, c='yellow', marker='x', label='SE', s=50)
-    ax.scatter(nw_lat, nw_lon, nw_alt, c='magenta', marker='x', label='NW', s=50)
-    ax.scatter(sw_lat, sw_lon, sw_alt, c='cyan', marker='x', label='SW', s=50)
+    ax.scatter(last_enemy_center_lat, last_enemy_center_lon, last_enemy_center_alt, c='green', marker='*', label='Last UAV Init', s=50)
+
+
+    ax.scatter(last_uav_lat, last_uav_lon, last_uav_alt, c='green', marker='x', label='Last UAV Init', s=50)
+    # ax.scatter(ne_lat, ne_lon, ne_alt, c='green', marker='x', label='NE', s=50)
+    # ax.scatter(se_lat, se_lon, se_alt, c='yellow', marker='x', label='SE', s=50)
+    # ax.scatter(nw_lat, nw_lon, nw_alt, c='magenta', marker='x', label='NW', s=50)
+    # ax.scatter(sw_lat, sw_lon, sw_alt, c='cyan', marker='x', label='SW', s=50)
 
     ax.set_xlabel('Longitude')
     ax.set_ylabel('Latitude')
@@ -199,17 +278,21 @@ if __name__ == "__main__":
     #print("ne,se,nw,sw,enemy_approx", ne, se, nw, sw, data['enemy_approx'])
 
     max_distance = max_distance(data['basepoint'], data['enemy_approx'], data['enemy_latrange'], data['enemy_lonrange'], converter) #求得最远y轴距离
-    print(f"max_distance, distances2 = {max_distance} ")
+    # print(f"max_distance, distances2 = {max_distance} ")
 
     time_detect = function_last_detection_time(data['minimum_speed'], data['speed'], max_distance, data['detect_distance'])
-    print("time_detect = ", time_detect, "*******", data['detect_distance'])
+    # print("time_detect = ", time_detect, "*******", data['detect_distance'])
 
     last_uav_distance = last_uav_distance(data['basepoint'], sorted_second[0][0][1], data['minimum_speed'], data['speed'], max_distance, data['detect_distance'], converter) #求得第2波次无人机纵队最后的无人机需要提前飞出的距离
-    print("last_uav_distance", last_uav_distance)
-    # print("basepoint", data['basepoint'], sorted_second[0][0][1])
+    # print("last_uav_distance", last_uav_distance)
+    last_point = converter.local_to_geodetic_dms(sorted_second[0][0])
+    print("*******", last_point)
 
 
-    plot_positions_with_centers(data['first_uavs'], data['second_uavs'], data['enemy_approx'], ne, se, nw, sw,  converter)
+    last_uav_point, last_enemy_center= last_uav_move_strategy(data['minimum_speed'], data['maximum_speed'], data['speed'], max_distance, data['detect_distance'], last_point, data['basepoint'], data['enemy_approx'], acceleration, converter)
+    print("last_uav_point", last_uav_point)
+
+    plot_positions_with_centers(data['first_uavs'], data['second_uavs'], data['enemy_approx'], last_uav_point, last_enemy_center, converter)
 
 
 
