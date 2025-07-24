@@ -1,10 +1,11 @@
 import numpy as np
 from pyproj import CRS, Transformer
-from geopy.point import Point as geopyPoint
+from geopy.distance import great_circle
+import math
 
 
 class GeodeticToLocalConverter:
-    """经纬度与局部坐标相互转换"""
+    """经纬度与局部坐标相互转换 - 已改进支持球面距离计算"""
     def __init__(self, A_lat, A_lon, A_alt, B_lat, B_lon, B_alt):
         """
         初始化坐标系转换器
@@ -176,6 +177,134 @@ class GeodeticToLocalConverter:
 
         return formatted_str
 
+    def calculate_spherical_distance(self, lat1, lon1, alt1, lat2, lon2, alt2):
+        """
+        计算两点间的球面距离（大圆距离）
+        这是飞机实际应该飞行的距离，考虑地球曲率
+
+        :param lat1, lon1, alt1: 点1的纬度、经度、高度
+        :param lat2, lon2, alt2: 点2的纬度、经度、高度
+        :return: 球面距离(米)
+        """
+        # 地表大圆距离
+        ground_distance = great_circle((lat1, lon1), (lat2, lon2)).meters
+
+        # 高度差
+        altitude_diff = alt2 - alt1
+
+        # 3D距离 (考虑高度的实际飞行距离)
+        actual_distance = math.sqrt(ground_distance**2 + altitude_diff**2)
+
+        return actual_distance
+
+    def calculate_flight_bearing(self, lat1, lon1, lat2, lon2):
+        """
+        计算真航向角（从点1到点2的方位角）
+
+        :return: 航向角(度，0-360°，正北为0°，顺时针)
+        """
+        lat1_rad = math.radians(lat1)
+        lat2_rad = math.radians(lat2)
+        dlon_rad = math.radians(lon2 - lon1)
+
+        y = math.sin(dlon_rad) * math.cos(lat2_rad)
+        x = math.cos(lat1_rad) * math.sin(lat2_rad) - \
+            math.sin(lat1_rad) * math.cos(lat2_rad) * math.cos(dlon_rad)
+
+        bearing_rad = math.atan2(y, x)
+        bearing_deg = (math.degrees(bearing_rad) + 360) % 360
+
+        return bearing_deg
+
+    def generate_flight_waypoints(self, start_lat, start_lon, start_alt,
+                                 end_lat, end_lon, end_alt, num_points=10):
+        """
+        生成大圆航线上的航路点
+        这些点构成了飞机应该实际飞行的路径
+
+        :param num_points: 航路点数量
+        :return: 航路点列表 [(lat, lon, alt), ...]
+        """
+        waypoints = []
+
+        for i in range(num_points + 1):
+            fraction = i / num_points
+
+            if fraction == 0:
+                lat, lon, alt = start_lat, start_lon, start_alt
+            elif fraction == 1:
+                lat, lon, alt = end_lat, end_lon, end_alt
+            else:
+                # 大圆插值计算中间点
+                lat, lon = self._interpolate_great_circle(
+                    start_lat, start_lon, end_lat, end_lon, fraction
+                )
+                # 线性插值高度
+                alt = start_alt + (end_alt - start_alt) * fraction
+
+            waypoints.append((lat, lon, alt))
+
+        return waypoints
+
+    def _interpolate_great_circle(self, lat1, lon1, lat2, lon2, fraction):
+        """
+        在大圆上进行插值计算中间点
+        """
+        lat1_rad = math.radians(lat1)
+        lon1_rad = math.radians(lon1)
+        lat2_rad = math.radians(lat2)
+        lon2_rad = math.radians(lon2)
+
+        # 计算两点间的角距离
+        d = math.acos(
+            math.sin(lat1_rad) * math.sin(lat2_rad) +
+            math.cos(lat1_rad) * math.cos(lat2_rad) * math.cos(lon2_rad - lon1_rad)
+        )
+
+        if d == 0:  # 同一点
+            return lat1, lon1
+
+        a = math.sin((1 - fraction) * d) / math.sin(d)
+        b = math.sin(fraction * d) / math.sin(d)
+
+        x = a * math.cos(lat1_rad) * math.cos(lon1_rad) + \
+            b * math.cos(lat2_rad) * math.cos(lon2_rad)
+        y = a * math.cos(lat1_rad) * math.sin(lon1_rad) + \
+            b * math.cos(lat2_rad) * math.sin(lon2_rad)
+        z = a * math.sin(lat1_rad) + b * math.sin(lat2_rad)
+
+        lat_rad = math.atan2(z, math.sqrt(x**2 + y**2))
+        lon_rad = math.atan2(y, x)
+
+        return math.degrees(lat_rad), math.degrees(lon_rad)
+
+    def compare_distances(self, lat1, lon1, alt1, lat2, lon2, alt2):
+        """
+        比较直线距离和球面距离的差异
+
+        :return: 包含两种距离计算结果的字典
+        """
+        # 使用原来的局部坐标系方法计算直线距离
+        local_coords_1 = self.geodetic_to_local(lat1, lon1, alt1)
+        local_coords_2 = self.geodetic_to_local(lat2, lon2, alt2)
+        linear_distance = np.linalg.norm(local_coords_2 - local_coords_1)
+
+        # 使用球面方法计算实际飞行距离
+        spherical_distance = self.calculate_spherical_distance(
+            lat1, lon1, alt1, lat2, lon2, alt2
+        )
+
+        # 计算差异
+        difference = spherical_distance - linear_distance
+        difference_percent = (difference / spherical_distance) * 100
+
+        return {
+            'linear_distance_m': linear_distance,
+            'spherical_distance_m': spherical_distance,
+            'difference_m': difference,
+            'difference_percent': difference_percent,
+            'flight_bearing_deg': self.calculate_flight_bearing(lat1, lon1, lat2, lon2)
+        }
 
 def dms_to_decimal(dms_str):
     """
@@ -221,25 +350,60 @@ def decimal_dms_to_degrees(coord_str):
 
 # 使用示例
 if __name__ == "__main__":
+    print("=== 坐标系转换和飞行距离计算示例 ===")
+    print()
+    
     # 定义A点和B点(经纬度高程)
     A_lat, A_lon, A_alt = 40.0, 116.0, 50.0  # 北京附近, 海拔50米
     B_lat, B_lon, B_alt = 40.01, 116.0, 55.0  # A点正北约1.1公里, 海拔55米
 
-    # lat_deg, lat_min, lat_sec = .decimal_degrees_to_dms(40.01)
-
     # 创建坐标系转换器
     converter = GeodeticToLocalConverter(A_lat, A_lon, A_alt, B_lat, B_lon, B_alt)
 
-    # 示例1: 将C点从局部坐标转换为经纬度高程
-    C_local = np.array([100, 200, 10])  # 局部坐标系中的坐标(x=100m东, y=200m北, z=10m上)
+    print("1. 局部坐标转换为经纬度高程 (度分秒格式)")
+    C_local = np.array([100, 200, 10])
     result = converter.local_to_geodetic_dms(C_local)
-    print(result)
-    # print(result)
-    # print(f"C点局部坐标: {C_local} 米")
-    # print(f"C点经纬度高程: ({C_lat:.6f}°, {C_lon:.6f}°, {C_alt:.2f}米)")
-    #
-    # # 示例2: 将经纬度高程转换为局部坐标
-    # P_lat, P_lon, P_alt = 40.005, 116.003, 52.0
-    # P_local = converter.geodetic_to_local(P_lat, P_lon, P_alt)
-    # print(f"\nP点经纬度高程: ({P_lat}°, {P_lon}°, {P_alt}米)")
-    # print(f"P点局部坐标: {P_local} 米")
+    print(f"C点局部坐标: {C_local} 米")
+    print(f"C点经纬度高程: {result}")
+    print()
+
+    print("2. 比较直线距离与球面距离")
+    # 北京到上海的示例
+    beijing_lat, beijing_lon, beijing_alt = 39.9042, 116.4074, 100
+    shanghai_lat, shanghai_lon, shanghai_alt = 31.2304, 121.4737, 50
+    
+    distance_comparison = converter.compare_distances(
+        beijing_lat, beijing_lon, beijing_alt,
+        shanghai_lat, shanghai_lon, shanghai_alt
+    )
+    
+    print(f"起点: 北京 ({beijing_lat}°N, {beijing_lon}°E, {beijing_alt}m)")
+    print(f"终点: 上海 ({shanghai_lat}°N, {shanghai_lon}°E, {shanghai_alt}m)")
+    print(f"")
+    print(f"直线距离 (局部坐标系): {distance_comparison['linear_distance_m']/1000:.2f} km")
+    print(f"球面距离 (实际飞行): {distance_comparison['spherical_distance_m']/1000:.2f} km")
+    print(f"距离差异: {distance_comparison['difference_m']/1000:.2f} km ({distance_comparison['difference_percent']:.2f}%)")
+    print(f"飞行航向: {distance_comparison['flight_bearing_deg']:.1f}°")
+    print()
+    
+    print("3. 生成飞行航路点")
+    waypoints = converter.generate_flight_waypoints(
+        beijing_lat, beijing_lon, beijing_alt,
+        shanghai_lat, shanghai_lon, shanghai_alt,
+        num_points=5
+    )
+    
+    print("北京到上海的航路点:")
+    for i, (lat, lon, alt) in enumerate(waypoints):
+        if i == 0:
+            print(f"  起点: {lat:.4f}°N, {lon:.4f}°E, {alt:.1f}m")
+        elif i == len(waypoints)-1:
+            print(f"  终点: {lat:.4f}°N, {lon:.4f}°E, {alt:.1f}m")
+        else:
+            print(f"  航路点{i}: {lat:.4f}°N, {lon:.4f}°E, {alt:.1f}m")
+    
+    print()
+    print("=== 重要说明 ===")
+    print("1. 直线距离: 假设地球是平面，计算两点间的直线距离")
+    print("2. 球面距离: 考虑地球曲率，计算大圆距离，这是飞机实际应该飞行的路径")
+    print("3. 对于长距离飞行，两者差异会很大，应该使用球面距离进行导航计算")
