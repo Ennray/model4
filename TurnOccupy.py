@@ -146,6 +146,8 @@ def simulate_relative_motion(uav_start, enemy_start, basepoint, uav_speed, enemy
         # local → 地理坐标
         next_base_geo = converter.local_to_geodetic_dms(base_local)
         next_enemy_geo = converter.local_to_geodetic_dms(enemy_local)
+        next_base_geo[2] = uav_start[2]
+        next_enemy_geo[2] = enemy_start[2]
 
         # 记录每一步坐标与 converter
         base_positions.append(next_base_geo)
