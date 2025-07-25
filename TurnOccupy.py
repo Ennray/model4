@@ -73,29 +73,25 @@ def to_local(pos_dms, converter):
 
 
 #计算第1波无人机距离敌群的最远距离
-def max_distance(basepoint, enemy_center, lat_range, lon_range, converter):
-    ne, se, nw, sw = get_enemy_edges(enemy_center, lat_range, lon_range)
-    max_distance = 0
+def max_distance(basepoint, enemy_center, lat_range, lon_range):
+    #定义敌方四个角dms格式
+    ne = [lon_range[1], lat_range[1], enemy_center[2]]  # 北 + 东
+    se = [lon_range[1], lat_range[0], enemy_center[2]]  # 南 + 东
+    nw = [lon_range[0], lat_range[1], enemy_center[2]]  # 北 + 西
+    sw = [lon_range[0], lat_range[0], enemy_center[2]]  # 南 + 西
 
-    pos_ne = to_local(ne, converter)
-    pos_se = to_local(se, converter)
-    pos_nw = to_local(nw, converter)
-    pos_sw = to_local(sw, converter)
-    pos_base = to_local(basepoint, converter)
+    #转为十进制度
+    base_lat, base_lon, base_alt = GeodeticConverter.decimal_dms_to_degrees(basepoint)
+    corners = [ne, se, nw, sw]
 
+    #四个角转经纬度数值，用球面坐标计算到base的最远距离
+    max_dist = 0
+    for corner_dms in corners:
+        lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(corner_dms)
+        dist = converter.calculate_spherical_distance(base_lat, base_lon, base_alt, lat, lon, alt)
+        max_dist = max(max_dist, dist)
 
-    #计算与base的y轴距离
-    def euclidean_y(p1,p2):
-        return p2[1] - p1[1]
-
-    distances = [
-        euclidean_y(pos_base, pos_ne),
-        euclidean_y(pos_base, pos_se),
-        euclidean_y(pos_base, pos_nw),
-        euclidean_y(pos_base, pos_sw)
-    ]
-    distances = max(distances)
-    return distances
+    return max_dist
 
 
 #求解探测到敌方最后沿时的时间
@@ -267,39 +263,32 @@ if __name__ == "__main__":
 
 
     #============================创建局部坐标系================================
+    #最开始的局部坐标系（局部坐标系用于判断一些细节问题）
     converter, uav_traj, enemy_traj = simulate_relative_motion(
         data['basepoint'],
         data['enemy_approx'],
         data['basepoint'],
         data['minimum_speed'],
         data['speed'],
-        190,
+        0,
         10
-
     )
-    print("按理来说的坐标:",converter)
-
-    # A_lat, A_lon, A_alt = GeodeticConverter.decimal_dms_to_degrees(data['basepoint'])
-    # B_lat, B_lon, B_alt = GeodeticConverter.decimal_dms_to_degrees(data['enemy_approx'])
-    # converter = GeodeticConverter.GeodeticToLocalConverter(A_lat, A_lon, A_alt, B_lat, B_lon, B_alt)
-    # print("最开始的坐标:", converter)
-
 
     #===========================处理第2波次无人机===============================
-
+    #对第2波次无人机进行聚类，得到纵队情况
     cluster_second_uav = cluster_uavs_by_latitude(data['second_uavs'], converter) #聚类
     num_columns = len(cluster_second_uav) #得到类别数
 
-    sorted_second = sorted_y_points(data['second_uavs'], converter) #对第2波次无人机按y从小到大进行排序，得到sorted_second[0]就是末尾那架无人机
+    #对第2波次无人机按y从小到大进行排序，得到sorted_second[0]就是末尾那架无人机
+    sorted_second = sorted_y_points(data['second_uavs'], converter)
 
-    ne, se, nw, sw = get_enemy_edges(data['enemy_approx'], data['enemy_latrange'], data['enemy_lonrange']) #得到敌机边界四个角
-    #print("ne,se,nw,sw,enemy_approx", ne, se, nw, sw, data['enemy_approx'])
-
-    max_distance = max_distance(data['basepoint'], data['enemy_approx'], data['enemy_latrange'], data['enemy_lonrange'], converter) #求得最远y轴距离
+    #已知敌机中心和经纬度范围求得敌机距离base的最大距离，即最远边界值
+    max_distance = max_distance(data['basepoint'], data['enemy_approx'], data['enemy_latrange'], data['enemy_lonrange'])
     # print(f"max_distance, distances2 = {max_distance} ")
 
+    #计算当第1波次无人机能将敌方全纳入探测范围时的时间
     time_detect = function_last_detection_time(data['minimum_speed'], data['speed'], max_distance, data['detect_distance'])
-    # print("time_detect = ", time_detect, "*******", data['detect_distance'])
+    # print("time_detect = ", time_detect)
 
     # last_uav_distance = last_uav_distance(data['basepoint'], sorted_second[0][0][1], data['minimum_speed'], data['speed'], max_distance, data['detect_distance'], converter) #求得第2波次无人机纵队最后的无人机需要提前飞出的距离
     # print("last_uav_distance", last_uav_distance)
