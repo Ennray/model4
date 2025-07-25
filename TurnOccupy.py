@@ -12,6 +12,7 @@ from numpy.ma.core import remainder
 
 import GeodeticConverter
 import outdata
+from FollowPositition import safety_distance
 from GeodeticConverter import dms_to_decimal
 from data.dataset import dataset
 
@@ -172,6 +173,7 @@ def last_uav_move_strategy(uav_speed, uav_max_speed, enemy_speed, max_distances,
     #敌群中心位置
     enemy_lat, enemy_lon, enemy_alt = GeodeticConverter.decimal_dms_to_degrees(enemy_center)
 
+
     #求飞行方向
     bearing =  converter.calculate_flight_bearing(lat, lon, enemy_lat, enemy_lon)
     bearing_enemy = converter.calculate_flight_bearing(enemy_lat, enemy_lon, lat, lon)
@@ -187,6 +189,23 @@ def last_uav_move_strategy(uav_speed, uav_max_speed, enemy_speed, max_distances,
         enemy_lat, enemy_lon, enemy_alt, bearing_enemy, enemy_movedis, 0
     )
 
+    #计算此时相对距离
+    distance_move = converter.calculate_spherical_distance(new_lat, new_lon, new_alt, new_enemy_lat, new_enemy_lon, new_enemy_alt)
+    print("*********distance:",distance_move)
+    safety_distance = 1000
+
+    time_move = (distance_move - safety_distance) / (uav_speed + enemy_speed)
+    distance_uav = uav_speed * time_move
+    distance_enemy = enemy_speed * time_move
+    angle = converter.calculate_climb_angle(new_alt, new_enemy_alt, distance_uav)
+    uav_meet_lat, uav_meet_lon, uav_meet_alt, distance_uav_val= converter.calculate_destination_with_climb_angle(new_lat, new_lon, new_alt, bearing, distance_uav, angle)
+
+
+
+
+
+
+
     # 10. 输出
     print(f"无人机原位置: {uavpoint}")
     print(f"敌群原位置: {enemy_center}")
@@ -195,7 +214,7 @@ def last_uav_move_strategy(uav_speed, uav_max_speed, enemy_speed, max_distances,
     print(f"敌群新位置: [{new_enemy_lon:.6f}, {new_enemy_lat:.6f}, {enemy_alt:.1f}]")
 
     # 转为 DMS 格式
-    uav_dms = converter.local_to_geodetic_dms(converter.geodetic_to_local(new_lat, new_lon, new_alt))
+    uav_dms = converter.local_to_geodetic_dms(converter.geodetic_to_local(uav_meet_lat, uav_meet_lon, uav_meet_alt))
     enemy_dms = converter.local_to_geodetic_dms(converter.geodetic_to_local(new_enemy_lat, new_enemy_lon, enemy_alt))
 
     return uav_dms, enemy_dms

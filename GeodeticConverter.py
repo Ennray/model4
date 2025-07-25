@@ -197,6 +197,24 @@ class GeodeticToLocalConverter:
 
         return actual_distance
 
+    def calculate_climb_angle(self, alt1, alt2, ground_distance_m):
+        """
+        根据两点高度差与地面距离，计算爬升/下降角（仰角）
+
+        :param alt1: 起点高度（米）
+        :param alt2: 终点高度（米）
+        :param ground_distance_m: 水平地面距离（米）
+        :return: 爬升角/下降角（度），正值为上升，负值为下降
+        """
+        if ground_distance_m == 0:
+            raise ValueError("地面距离不能为 0，无法计算仰角")
+
+        delta_alt = alt2 - alt1  # 高度差
+        angle_rad = math.atan2(delta_alt, ground_distance_m)  # 注意使用 atan2，考虑正负方向
+        angle_deg = math.degrees(angle_rad)
+
+        return angle_deg
+
     def calculate_flight_bearing(self, lat1, lon1, lat2, lon2):
         """
         计算真航向角（从点1到点2的方位角）
