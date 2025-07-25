@@ -306,6 +306,71 @@ class GeodeticToLocalConverter:
             'flight_bearing_deg': self.calculate_flight_bearing(lat1, lon1, lat2, lon2)
         }
 
+    def calculate_destination_point(self, start_lat, start_lon, start_alt, 
+                                   bearing_deg, distance_m, altitude_change_m=0):
+        """
+        根据起点、移动方向和距离计算终点的经纬度高度
+        使用 geopy.distance.great_circle 的 destination 方法
+        
+        :param start_lat: 起点纬度(度)
+        :param start_lon: 起点经度(度) 
+        :param start_alt: 起点高度(米)
+        :param bearing_deg: 移动方向(度，0-360°，正北为0°，顺时针)
+        :param distance_m: 移动距离(米，地表距离)
+        :param altitude_change_m: 高度变化(米，正值为上升，负值为下降)
+        :return: (终点纬度, 终点经度, 终点高度)
+        """
+        # 使用 geopy 的 great_circle 计算目标点
+        # 创建距离对象（以米为单位）
+        distance_obj = great_circle(meters=distance_m)
+        
+        # 计算目标点坐标
+        destination_point = distance_obj.destination(
+            point=(start_lat, start_lon), 
+            bearing=bearing_deg
+        )
+        
+        # 提取经纬度
+        end_lat = destination_point.latitude
+        end_lon = destination_point.longitude
+        
+        # 计算终点高度
+        end_alt = start_alt + altitude_change_m
+        
+        return end_lat, end_lon, end_alt
+
+    def calculate_destination_with_climb_angle(self, start_lat, start_lon, start_alt,
+                                             bearing_deg, ground_distance_m, climb_angle_deg=0):
+        """
+        根据起点、方向、地面距离和爬升角计算终点坐标
+        考虑飞机的爬升/下降轨迹
+        
+        :param start_lat: 起点纬度(度)
+        :param start_lon: 起点经度(度)
+        :param start_alt: 起点高度(米)
+        :param bearing_deg: 移动方向(度，0-360°，正北为0°，顺时针)
+        :param ground_distance_m: 地面投影距离(米)
+        :param climb_angle_deg: 爬升角(度，正值为爬升，负值为下降)
+        :return: (终点纬度, 终点经度, 终点高度, 实际飞行距离)
+        """
+        # 计算高度变化
+        climb_angle_rad = math.radians(climb_angle_deg)
+        altitude_change = ground_distance_m * math.tan(climb_angle_rad)
+        
+        # 计算实际飞行距离(3D距离)
+        actual_flight_distance = ground_distance_m / math.cos(climb_angle_rad)
+        
+        # 使用地面距离计算终点的经纬度
+        end_lat, end_lon, _ = self.calculate_destination_point(
+            start_lat, start_lon, start_alt, bearing_deg, ground_distance_m, 0
+        )
+        
+        # 计算终点高度
+        end_alt = start_alt + altitude_change
+        
+        return end_lat, end_lon, end_alt, actual_flight_distance
+
+    # ...existing code...
 def dms_to_decimal(dms_str):
     """
     将度分秒字符串转换为十进制度数
@@ -403,7 +468,44 @@ if __name__ == "__main__":
             print(f"  航路点{i}: {lat:.4f}°N, {lon:.4f}°E, {alt:.1f}m")
     
     print()
+    print("4. 根据方向和距离计算目标点")
+    start_lat, start_lon, start_alt = 39.9042, 116.4074, 1000  # 北京，海拔1000米
+    
+    # 示例1: 向正北飞行100公里，高度不变
+    bearing = 0  # 正北
+    distance = 100000  # 100公里
+    end_lat, end_lon, end_alt = converter.calculate_destination_point(
+        start_lat, start_lon, start_alt, bearing, distance
+    )
+    print(f"起点: {start_lat}°N, {start_lon}°E, {start_alt}m")
+    print(f"向北飞行100km后:")
+    print(f"终点: {end_lat:.4f}°N, {end_lon:.4f}°E, {end_alt}m")
+    
+    # 验证距离
+    actual_distance = converter.calculate_spherical_distance(
+        start_lat, start_lon, start_alt, end_lat, end_lon, end_alt
+    )
+    print(f"验证距离: {actual_distance/1000:.2f} km")
+    print()
+    
+    # 示例2: 向东南方向飞行，带爬升角
+    bearing = 135  # 东南方向
+    ground_distance = 50000  # 地面距离50公里
+    climb_angle = 5  # 爬升角5度
+    
+    end_lat2, end_lon2, end_alt2, flight_distance = converter.calculate_destination_with_climb_angle(
+        start_lat, start_lon, start_alt, bearing, ground_distance, climb_angle
+    )
+    print(f"向东南方向飞行，带5°爬升角:")
+    print(f"地面距离: {ground_distance/1000:.1f} km")
+    print(f"实际飞行距离: {flight_distance/1000:.2f} km")
+    print(f"终点: {end_lat2:.4f}°N, {end_lon2:.4f}°E, {end_alt2:.1f}m")
+    print(f"高度变化: +{end_alt2-start_alt:.1f}m")
+    
+    print()
     print("=== 重要说明 ===")
     print("1. 直线距离: 假设地球是平面，计算两点间的直线距离")
     print("2. 球面距离: 考虑地球曲率，计算大圆距离，这是飞机实际应该飞行的路径")
     print("3. 对于长距离飞行，两者差异会很大，应该使用球面距离进行导航计算")
+    print("4. calculate_destination_point: 根据方向和距离计算目标点坐标")
+    print("5. calculate_destination_with_climb_angle: 考虑爬升/下降角度的飞行轨迹计算")
