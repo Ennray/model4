@@ -4,8 +4,11 @@ import math
 import sympy as sp
 from sympy.physics.units import acceleration
 
+
 import velocity_recong
 from sklearn.cluster import DBSCAN
+from geopy.distance import distance
+from geopy import Point
 import plotly.graph_objs as go
 
 from numpy.ma.core import remainder
@@ -16,6 +19,7 @@ from FollowPositition import safety_distance
 from GeodeticConverter import dms_to_decimal
 from data.dataset import dataset
 from sympy import symbols, solve, Eq, sqrt
+
 
 GRAVITY_EARTH = 9.80665  # 地球表面重力加速度
 R = 6371000  # 地球半径，单位：米
@@ -200,28 +204,44 @@ def simulate_relative_motion(uav_start, enemy_start, basepoint, uav_speed, enemy
     return converter, base_positions, enemy_positions
 
 
-#根据度数计算转弯某弧度后的度数位置
-def calculate_turning_position(lat, lon, alt, turning_radius, angle):
 
-    # 将经纬度转为弧度
-    lat_rad = math.radians(lat)
-    lon_rad = math.radians(lon)
+def angle_with_latitude_line(bearing):
+    """
+    返回无人机方向与纬线（东西方向）之间的夹角（单位：度）
+    结果范围在 [0, 180]
+    """
+    # 纬线方向为正东（90度），求夹角
+    angle_diff = abs(bearing - 90)
+    # 夹角应为 0~180 范围
+    if angle_diff > 180:
+        angle_diff = 360 - angle_diff
+    return angle_diff
 
-    # 计算转弯后的纬度变化（沿纬度方向移动）
-    delta_lat = turning_radius * math.cos(angle) / R
-    # 计算转弯后的经度变化（沿经度方向移动）
-    delta_lon = turning_radius * math.sin(angle) / (R * math.cos(lat_rad))
 
-    # 计算新的纬度和经度
-    new_lat = lat + math.degrees(delta_lat)  # 纬度变化，转换回度
-    new_lon = lon + math.degrees(delta_lon)  # 经度变化，转换回度
+def calculate_turning_position_with_bearing(lat, lon, alt, turning_radius, angle_deg, bearing_deg, direction='left'):
 
-    # 返回新位置
-    return new_lat, new_lon, alt
+    angle_diff = angle_with_latitude_line(bearing_deg)
+    print("与纬度的夹角：", {angle_diff})
+    # Step 1: 计算圆心方向（偏移航向±90度）
+    offset_bearing = (bearing_deg + (90 if direction == 'left' else -90)) % 360
+
+    # Step 2: 计算圆心点
+    center_point = distance(meters=turning_radius).destination(Point(lat, lon), bearing=offset_bearing)
+
+    # Step 3: 计算终点方向：从圆心开始，按方向旋转角度
+    arc_end_bearing = (offset_bearing + (angle_deg if direction == 'left' else -angle_deg)) % 360
+
+    # Step 4: 沿圆弧从圆心出发，回到圆周上
+    end_point = distance(meters=turning_radius).destination(center_point, bearing=arc_end_bearing)
+
+    print("无人机方向，偏移", {bearing_deg}, offset_bearing)
+
+    return end_point.latitude, end_point.longitude, alt
+
 
 
 # 计算无人机在假设转弯弧度后的点位（并未进行追击）
-def after_turn_position(turning_radius, uav_meet_dms, angle_deg):
+def after_turn_position(turning_radius, uav_meet_dms, angle_deg, bearing_deg, direction='right'):
     # 先转度数
     uav_meet_lat, uav_meet_lon, uav_meet_alt = GeodeticConverter.decimal_dms_to_degrees(uav_meet_dms)
 
@@ -229,8 +249,8 @@ def after_turn_position(turning_radius, uav_meet_dms, angle_deg):
     angle_rad = math.radians(angle_deg)
 
     # 计算转弯后无人机的位置
-    after_turning_uav_lat, after_turning_uav_lon, after_turning_uav_alt = calculate_turning_position(
-        uav_meet_lat, uav_meet_lon, uav_meet_alt, turning_radius, angle_rad)
+    after_turning_uav_lat, after_turning_uav_lon, after_turning_uav_alt = calculate_turning_position_with_bearing(
+        uav_meet_lat, uav_meet_lon, uav_meet_alt, turning_radius, angle_rad, bearing_deg, direction)
 
     # 角度转local再转经纬度，得到转弯某角度后的经纬度坐标
     after_turning_uav_dms = converter.local_to_geodetic_dms(
@@ -298,14 +318,12 @@ def last_uav_move_strategy(uav_speed, uav_max_speed, uav_deceleration_speed, ene
 
     #球面预测加速后飞行点
     new_lat, new_lon, new_alt = converter.calculate_destination_point(
-        lat, lon, alt, bearing, total_distances, 0
-    )
+        lat, lon, alt, bearing, total_distances, 0)
 
     #敌群位置更新（反方向飞行）
     enemy_movedis = enemy_speed * (time + time_acc)
     new_enemy_lat, new_enemy_lon, new_enemy_alt = converter.calculate_destination_point(
-        enemy_lat, enemy_lon, enemy_alt, bearing_enemy, enemy_movedis, 0
-    )
+        enemy_lat, enemy_lon, enemy_alt, bearing_enemy, enemy_movedis, 0)
 
     #计算此时相对距离
     distance_move = converter.calculate_spherical_distance(new_lat, new_lon, new_alt, new_enemy_lat, new_enemy_lon, new_enemy_alt)
@@ -348,15 +366,15 @@ def last_uav_move_strategy(uav_speed, uav_max_speed, uav_deceleration_speed, ene
     print("转弯时间", turning_time)
 
     #转弯时我方无人机及敌方无人机转dms
-    uav_dms = [uav_meet_lat, uav_meet_lon, uav_meet_alt]
-    enemy_dms = [meet_enemy_lat, meet_enemy_lon, meet_enemy_alt]
-    last_begin_turn_dms = converter.local_to_geodetic_dms(uav_dms)
-    meet_last_enemy_dms = converter.local_to_geodetic_dms(enemy_dms)
+    last_begin_turn_dms = converter.local_to_geodetic_dms(
+        converter.geodetic_to_local(uav_meet_lat, uav_meet_lon, uav_meet_alt))
+    meet_last_enemy_dms = converter.local_to_geodetic_dms(
+        converter.geodetic_to_local(meet_enemy_lat, meet_enemy_lon, meet_enemy_alt))
 
 
-
+    bearing_rel =  converter.calculate_flight_bearing(uav_meet_lat, uav_meet_lon, enemy_lat, enemy_lon)
     #得到转弯angle_deg后的无人机dms位置
-    after_turning_last_uav_dms = after_turn_position(turning_radius, last_begin_turn_dms, angle_deg)
+    after_turning_last_uav_dms = after_turn_position(turning_radius, last_begin_turn_dms, angle_deg, bearing_rel, direction = 'right')
     turn_uav_lat, turn_uav_lon, turn_uav_alt = GeodeticConverter.decimal_dms_to_degrees(after_turning_last_uav_dms)
 
     #得到转弯后追击敌方时所需要花费的时间距离等
@@ -377,10 +395,7 @@ def last_uav_move_strategy(uav_speed, uav_max_speed, uav_deceleration_speed, ene
         converter.geodetic_to_local(chase_last_uav_lat, chase_last_uav_lon, chase_last_uav_alt))
 
 
-    return last_begin_turn_dms, meet_last_enemy_dms, chase_uav_dms, chase_enemy_dms, turning_time, chase_time_val
-
-
-
+    return last_begin_turn_dms, after_turning_last_uav_dms, chase_uav_dms, meet_last_enemy_dms, chase_enemy_dms, turning_time, chase_time_val
 
 
 
@@ -398,8 +413,9 @@ def geo_to_degrees(geo):
 
 #3D绘图便于观察
 def plot_positions_with_centers(uav_first_geo_init, uav_second_geo_init,
-                                enemy_center_init, last_uav, last_uav_point, last_enemy_center, 
-                                last_uav_chase_point, last_enemy_chase_center,before_turning_uav_point,after_turning_uav_point,converter):
+                                enemy_center_init, last_uav,
+                                meet_last_enemy_center, meet_last_uav_point,
+                                after_turn_last_uav, chase_last_point, chase_enemy_center,converter):
 
     #==================================点位转坐标=============================================
     # 初始第1波点位 uav_dms, enemy_dms,
@@ -408,38 +424,41 @@ def plot_positions_with_centers(uav_first_geo_init, uav_second_geo_init,
     second_uav_init_lats, second_uav_inti_lons, second_uav_init_alts = geo_to_degrees(uav_second_geo_init)
 
 
-
-    #===================================中心转坐标============================================
+    #===================================敌群中心转坐标============================================
     # 初始中心（已知）
     enemy_center_init_lat, enemy_center_init_lon, enemy_center_init_alt = GeodeticConverter.decimal_dms_to_degrees(enemy_center_init)#开始敌群中心
-    last_enemy_center_lat, last_enemy_center_lon, last_enemy_center_alt = GeodeticConverter.decimal_dms_to_degrees(last_enemy_center)#开始转弯敌群中心
-    last_uav_lat, last_uav_lon, last_uav_alt = GeodeticConverter.decimal_dms_to_degrees(last_uav_point) #开始转弯
+    last_enemy_center_lat, last_enemy_center_lon, last_enemy_center_alt = GeodeticConverter.decimal_dms_to_degrees(meet_last_enemy_center)#遇到最后一架无人机开始转弯敌群中心
+    last_chase_enemy_lat, last_chase_enemy_lon, last_chase_enemy_alt = GeodeticConverter.decimal_dms_to_degrees(chase_enemy_center)#被最后一架无人机追上时的位置
+
+
+    # ==================================最后一架无人机============================================
     last_lat, last_lon, last_alt = GeodeticConverter.decimal_dms_to_degrees(last_uav)#开始
-    new_chase_enemy_lat, new_chase_enemy_lon, new_chase_enemy_alt = GeodeticConverter.decimal_dms_to_degrees(last_enemy_chase_center)
-    new_chase_uav_lat, new_chase_uav_lon, new_chase_uav_alt = GeodeticConverter.decimal_dms_to_degrees(last_uav_chase_point)
-    after_turning_uav_lat, after_turning_uav_lon, after_turning_uav_alt = GeodeticConverter.decimal_dms_to_degrees(after_turning_uav_point)
-    before_turning_uav_lat, before_turning_uav_lon, before_turning_uav_alt = GeodeticConverter.decimal_dms_to_degrees(before_turning_uav_point)
+    meet_last_lat, meet_last_lon, meet_last_alt = GeodeticConverter.decimal_dms_to_degrees(meet_last_uav_point)#刚与敌群相遇时的点位
+    after_turn_last_lat, after_turn_last_lon, after_turn_last_alt = GeodeticConverter.decimal_dms_to_degrees(after_turn_last_uav)#转弯之后的点位
+    chase_last_lat, chase_last_lon, chase_last_alt = GeodeticConverter.decimal_dms_to_degrees(chase_last_point)#追击后的点位
+
 
     #=====================================绘图==============================================
     fig = plt.figure(figsize=(14, 10))
     ax = fig.add_subplot(111, projection='3d')
 
-    # 初始第1波
-    ax.scatter(first_uav_init_lats, first_uav_init_lons, first_uav_init_alts, c='cyan', marker='x', label='First UAV Init', s=50)
-
-    # 初始第2波
-    ax.scatter(second_uav_init_lats, second_uav_inti_lons, second_uav_init_alts, c='blue', marker='o', label='Second UAV Init', s=50)
-
-    # 初始敌群
+    # # 初始第1波
+    # ax.scatter(first_uav_init_lats, first_uav_init_lons, first_uav_init_alts, c='cyan', marker='x', label='First UAV Init', s=50)
+    #
+    # # 初始第2波
+    # ax.scatter(second_uav_init_lats, second_uav_inti_lons, second_uav_init_alts, c='blue', marker='o', label='Second UAV Init', s=50)
+    #
+    # # 初始敌群
     ax.scatter(enemy_center_init_lat, enemy_center_init_lon, enemy_center_init_alt, c='red', marker='*', label='Enemy Init', s=50)
     ax.scatter(last_enemy_center_lat, last_enemy_center_lon, last_enemy_center_alt, c='green', marker='*', label='Turning Enemy Init', s=50)
+    ax.scatter(last_chase_enemy_lat, last_chase_enemy_lon, last_chase_enemy_alt, c='orange', marker='*', label='Last chase enemy', s=50)
 
-    ax.scatter(last_lat, last_lon, last_alt, c='pink', marker='x', label='Second last UAV', s=50)
-    ax.scatter(last_uav_lat, last_uav_lon, last_uav_alt, c='green', marker='x', label='Turning UAV Init', s=50)
-    ax.scatter(before_turning_uav_lat, before_turning_uav_lon, before_turning_uav_alt, c='orange', marker='x', label='Before turning UAV Init', s=50)
-    ax.scatter(after_turning_uav_lat, after_turning_uav_lon, after_turning_uav_alt, c='yellow', marker='x', label='After turning UAV Init', s=50)
-    ax.scatter(new_chase_enemy_lat, new_chase_enemy_lon, new_chase_enemy_alt, c='black', marker='*', label='Chase enemy center', s=50)
-    ax.scatter(new_chase_uav_lat, new_chase_uav_lon, new_chase_uav_alt, c='black', marker='x', label='Chase UAV point', s=50)
+    #最后一架无人机
+    # ax.scatter(last_lat, last_lon, last_alt, c='pink', marker='x', label='Second last UAV', s=50)
+    ax.scatter(meet_last_lat, meet_last_lon, meet_last_alt, c='deepskyblue', marker='x', label='Meet last UAV', s=50)
+    ax.scatter(after_turn_last_lat, after_turn_last_lon, after_turn_last_alt, c='navy', marker='x', label='After Turn last UAV', s=50)
+    ax.scatter(chase_last_lat, chase_last_lon, chase_last_alt, c='purple', marker='x', label='Chase last UAV', s=50)
+
 
     ax.set_xlabel('Longitude')
     ax.set_ylabel('Latitude')
@@ -449,6 +468,7 @@ def plot_positions_with_centers(uav_first_geo_init, uav_second_geo_init,
     plt.tight_layout()
     plt.show()
 #无人机路径记录
+
 
 if __name__ == "__main__":
     #=============================初始化数据==================================
@@ -494,17 +514,14 @@ if __name__ == "__main__":
 
 
     #计算最后一架无人机刚开始加速到最大速度时的位置以及敌机位置
-    last_begin_turn_dms, meet_last_enemy_dms, chase_uav_dms, chase_enemy_dms, turning_time, chase_time = last_uav_move_strategy(
+    last_begin_turn_dms, after_turning_last_uav_dms, chase_uav_dms, meet_last_enemy_dms, chase_enemy_dms, turning_time, chase_time = last_uav_move_strategy(
         data['minimum_speed'], data['maximum_speed'], uav_deceleration_speed, data['speed'],
         max_distance, data['detect_distance'],last_point, data['basepoint'], data['enemy_approx'], acceleration)
 
-    # print("last_uav_point", last_uav_point)
-    # print("enemy_point", last_enemy_center)
-    # print("last_uav_chase_point", last_uav_chase_point)
-    # print("last_enemy_chase_center", last_enemy_chase_center)
-    # print("before_turning_uav_point", before_turning_uav_point)
-    # print("after_turning_uav_point", after_turning_uav_point)
-    # plot_positions_with_centers(data['first_uavs'], data['second_uavs'], data['enemy_approx'], last_point, last_uav_point, last_enemy_center,last_uav_chase_point, last_enemy_chase_center,before_turning_uav_point,after_turning_uav_point,converter)
+
+    plot_positions_with_centers(data['first_uavs'], data['second_uavs'], data['enemy_approx'], last_point,
+                                meet_last_enemy_dms, last_begin_turn_dms,
+                                after_turning_last_uav_dms, chase_uav_dms, chase_enemy_dms, converter)
 
 
 
