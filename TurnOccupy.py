@@ -31,7 +31,9 @@ def sorted_y_points(second_points, converter):
         i += 1
     seconds_sorted = sorted(seconds, key=lambda item: item[0][1], reverse=False)#按y轴升序排序
     return seconds_sorted
-#对第一批uav进行排序，由敌群的近到远
+
+
+#对第1批或第2批uav进行排序，由敌群的近到远
 def first_sorted_y_points(first_points,converter):
     first = []
     i = 0
@@ -42,6 +44,7 @@ def first_sorted_y_points(first_points,converter):
         i = i + 1
     first_sorted = sorted(first, key=lambda item: item[0][1], reverse=True)#按y轴降序排序
     return first_sorted
+
 
 #计算第一批无人机与敌群相遇的时间
 def first_meet_enemy_time(uav_sorted, enemy_pos,uav_speed, enemy_speed, safe_distence):
@@ -197,6 +200,7 @@ def simulate_relative_motion(uav_start, enemy_start, basepoint, uav_speed, enemy
     return converter, base_positions, enemy_positions
 
 
+#根据度数计算转弯某弧度后的度数位置
 def calculate_turning_position(lat, lon, alt, turning_radius, angle):
 
     # 将经纬度转为弧度
@@ -216,77 +220,57 @@ def calculate_turning_position(lat, lon, alt, turning_radius, angle):
     return new_lat, new_lon, alt
 
 
-#计算无人机在假设转弯弧度后的点位（并未进行追击）
-def after_turn_position(turning_radius, uav_meet_dms, enemy_meet_dms, distance_enemy_chase_val):
-
+# 计算无人机在假设转弯弧度后的点位（并未进行追击）
+def after_turn_position(turning_radius, uav_meet_dms, angle_deg):
+    # 先转度数
     uav_meet_lat, uav_meet_lon, uav_meet_alt = GeodeticConverter.decimal_dms_to_degrees(uav_meet_dms)
-    enemy_meet_lat, enemy_meet_lon, enemy_meet_alt = GeodeticConverter.decimal_dms_to_degrees(enemy_meet_dms)
 
-    bearing_enemy = converter.calculate_flight_bearing(enemy_meet_lat, enemy_meet_lon, uav_meet_lat, uav_meet_lon)
+    # 角度制转弧度制
+    angle_rad = math.radians(angle_deg)
 
     # 计算转弯后无人机的位置
     after_turning_uav_lat, after_turning_uav_lon, after_turning_uav_alt = calculate_turning_position(
-        uav_meet_lat, uav_meet_lon, uav_meet_alt, turning_radius, math.pi)
+        uav_meet_lat, uav_meet_lon, uav_meet_alt, turning_radius, angle_rad)
 
+    # 角度转local再转经纬度，得到转弯某角度后的经纬度坐标
+    after_turning_uav_dms = converter.local_to_geodetic_dms(
+        converter.geodetic_to_local(after_turning_uav_lat, after_turning_uav_lon, after_turning_uav_alt))
 
     print(
         f"转弯后无人机的位置: 纬度 = {after_turning_uav_lat}, 经度 = {after_turning_uav_lon}, 高度 = {after_turning_uav_alt}")
-    new_chase_enemy_lat, new_chase_enemy_lon, new_chase_enemy_alt = converter.calculate_destination_point(
-        enemy_meet_lat, enemy_meet_lon, enemy_meet_alt, bearing_enemy, distance_enemy_chase_val, 0)
-    new_chase_uav_lat, new_chase_uav_lon, new_chase_uav_alt = converter.calculate_destination_point(
-        enemy_meet_lat, enemy_meet_lon, enemy_meet_alt + safety_distance, bearing_enemy, distance_enemy_chase_val, 0)
-
-    # 10. 输出
-    # print(f"无人机原位置: {uavpoint}")
-    # print(f"敌群原位置: {enemy_center}")
-    # print(f"飞行方向: {bearing:.2f}°，飞行距离: {total_distances / 1000:.2f} km")
-    # print(f"无人机相遇位置: [{uav_meet_lon:.6f}, {uav_meet_lat:.6f}, {uav_meet_alt:.1f}]")
-    # print(f"无人机转弯后位置: [{after_turning_uav_lon:.6f}, {after_turning_uav_lat:.6f}, {after_turning_uav_alt:.1f}]")
-    # print(f"敌群相遇时位置: [{enemy_meet_lat:.6f}, {enemy_meet_lon:.6f}, {enemy_meet_alt:.1f}]")
-    # print(f"敌群被拐弯追赶后的位置: [{new_chase_enemy_lon:.6f}, {new_chase_enemy_lat:.6f}, {new_chase_enemy_alt:.1f}]")
-    # print(f"无人机追赶后的位置: [{new_chase_uav_lon:.6f}, {new_chase_uav_lat:.6f}, {new_chase_uav_alt:.1f}]")
-    # 转为 DMS 格式
-    # uav_dms = converter.local_to_geodetic_dms(converter.geodetic_to_local(new_lat, new_lon, new_alt))
-    # enemy_dms = converter.local_to_geodetic_dms(
-    #     converter.geodetic_to_local(new_enemy_lat, new_enemy_lon, new_enemy_alt))
-    # after_turning_uav_dms = converter.local_to_geodetic_dms(
-    #     converter.geodetic_to_local(after_turning_uav_lat, after_turning_uav_lon, after_turning_uav_alt))
-    # before_turning_uav_dms = converter.local_to_geodetic_dms(
-    #     converter.geodetic_to_local(uav_meet_lat, uav_meet_lon, uav_meet_alt))
-    # uav_chase_dms = converter.local_to_geodetic_dms(
-    #     converter.geodetic_to_local(new_chase_uav_lat, new_chase_uav_lon, new_chase_uav_alt))
-    # enemy_chase_dms = converter.local_to_geodetic_dms(
-    #     converter.geodetic_to_local(new_chase_enemy_lat, new_chase_enemy_lon, new_chase_enemy_alt))
-
-    # return uav_dms, enemy_dms, uav_chase_dms, enemy_chase_dms, before_turning_uav_dms, after_turning_uav_dms
+    return after_turning_uav_dms
 
 
+def after_turn_chase(uav_reltime_speed, uav_max_speed, enemy_speed, turning_time, turning_radius, acceleration):
 
-def after_turn_chase(uav_max_speed, enemy_speed, turning_time, turning_radius):
+    uav_max_speed = 400
+    #加速时间及加速阶段前进距离
+    time_acc = (uav_max_speed - uav_reltime_speed) / acceleration
+    distance_add = (uav_max_speed ** 2 -uav_reltime_speed ** 2) / (2 * acceleration)
+
 
     #定义符号变量以便求解转弯方程
-    chase_time, chase_distence, distence_enemy_chase = symbols('chase_time chase_distence distence_enemy_chase')
+    chase_time, uniform_time, chase_distance, distance_enemy_chase = symbols('chase_time uniform_time, chase_distance distance_enemy_chase')
 
-    # 建立方程组
+    #建立方程组
     equations = [
-        Eq(chase_distence / uav_max_speed, chase_time),  # 追击距离与时间关系
-        Eq((turning_time + chase_time) * enemy_speed, distence_enemy_chase),  # 敌人在追击期间移动距离
-        Eq(sqrt(distence_enemy_chase ** 2 + (2 * turning_radius) ** 2), chase_distence)  # 追击距离几何关系
+        Eq(time_acc + uniform_time, chase_time),  # 加速与匀速运动的时间关系
+        Eq(distance_add + uniform_time * uav_max_speed, chase_distance), # 速度与追击距离的关系
+        Eq((turning_time + chase_time) * enemy_speed, distance_enemy_chase),  # 敌人在追击期间移动距离
+        Eq(sqrt(distance_enemy_chase ** 2 + (2 * turning_radius) ** 2), chase_distance)  # 追击距离几何关系
     ]
 
-    # 解方程组
-    solutions = solve(equations, (chase_time, chase_distence, distence_enemy_chase))
+    #解方程组
+    solutions = solve(equations, (chase_time, uniform_time, chase_distance, distance_enemy_chase))
 
     for sol in solutions:
         numeric_sol = [float(val.evalf()) for val in sol]
-        chase_time_val, chase_distence_val, distence_enemy_chase_val = numeric_sol
+        chase_time_val, uniform_time_val, chase_distance_val, distance_enemy_chase_val = numeric_sol
 
     print(
-        f"转弯后追赶时间，转弯后追赶距离，转弯及追赶过程中敌群移动距离：[{chase_time_val:.6f}, {chase_distence_val:.6f}, {distence_enemy_chase_val:.1f}]")
+        f"转弯后追赶时间，转弯后追赶距离，转弯及追赶过程中敌群移动距离：[{chase_time_val:.6f}, {uniform_time_val}, {chase_distance_val:.6f}, {distance_enemy_chase_val:.1f}]")
 
-
-
-
+    return chase_time_val, uniform_time_val, chase_distance_val, distance_enemy_chase_val
 
 
 #纵队最后一架无人机的飞行策略
@@ -353,21 +337,49 @@ def last_uav_move_strategy(uav_speed, uav_max_speed, uav_deceleration_speed, ene
     #开始转弯的点位（相遇位置）
     uav_meet_lat, uav_meet_lon, uav_meet_alt, distance_uav_val= converter.calculate_destination_with_climb_angle(new_lat, new_lon, new_alt, bearing, distance_uav, angle)
 
+    # 当前假设转弯180度
+    angle_deg = 180
+    angle_deg_rad = math.radians(angle_deg)
+
     #计算转弯半径
-    turning_radius = ((uav_deceleration_speed**2) * (math.cos(angle_rad)**2)) / (GRAVITY_EARTH * math.tan(math.radians(45)))
+    turning_radius = (uav_deceleration_speed**2)/ (GRAVITY_EARTH * math.tan(math.radians(45))) #  (uav_deceleration_speed**2) * (math.cos(angle_rad)**2))
     print("半径", turning_radius)
-    turning_time = (math.pi * turning_radius) / uav_max_speed
+    turning_time = (angle_deg_rad * turning_radius) / uav_deceleration_speed
+    print("转弯时间", turning_time)
 
-
+    #转弯时我方无人机及敌方无人机转dms
     uav_dms = [uav_meet_lat, uav_meet_lon, uav_meet_alt]
     enemy_dms = [meet_enemy_lat, meet_enemy_lon, meet_enemy_alt]
     last_begin_turn_dms = converter.local_to_geodetic_dms(uav_dms)
-    meet_last_enemy_dms = converter.local_to_geodetic.dms(enemy_dms)
+    meet_last_enemy_dms = converter.local_to_geodetic_dms(enemy_dms)
 
 
 
+    #得到转弯angle_deg后的无人机dms位置
+    after_turning_last_uav_dms = after_turn_position(turning_radius, last_begin_turn_dms, angle_deg)
+    turn_uav_lat, turn_uav_lon, turn_uav_alt = GeodeticConverter.decimal_dms_to_degrees(after_turning_last_uav_dms)
 
-    return last_begin_turn_dms, meet_last_enemy_dms, turning_time, turning_radius
+    #得到转弯后追击敌方时所需要花费的时间距离等
+    chase_time_val, uniform_time_val, chase_distance_val, distance_enemy_chase_val = after_turn_chase(
+        uav_deceleration_speed, uav_max_speed, enemy_speed, turning_time, turning_radius, acceleration)
+
+    #得到追击到敌方时敌我两方位置
+    chase_enemy_lat, chase_enemy_lon, chase_enemy_alt = converter.calculate_destination_point(
+        meet_enemy_lat, meet_enemy_lon, meet_enemy_alt, bearing_enemy, distance_enemy_chase_val, 0)
+
+    chase_last_uav_lat, chase_last_uav_lon, chase_last_uav_alt = converter.calculate_destination_point(
+        meet_enemy_lat, meet_enemy_lon, meet_enemy_alt + safety_distance, bearing_enemy, distance_enemy_chase_val, 0)
+
+    #转弯后此时敌我两方的经纬度位置
+    chase_enemy_dms = converter.local_to_geodetic_dms(
+         converter.geodetic_to_local(chase_enemy_lat, chase_enemy_lon, chase_enemy_alt))
+    chase_uav_dms = converter.local_to_geodetic_dms(
+        converter.geodetic_to_local(chase_last_uav_lat, chase_last_uav_lon, chase_last_uav_alt))
+
+
+    return last_begin_turn_dms, meet_last_enemy_dms, chase_uav_dms, chase_enemy_dms, turning_time, chase_time_val
+
+
 
 
 
@@ -482,17 +494,17 @@ if __name__ == "__main__":
 
 
     #计算最后一架无人机刚开始加速到最大速度时的位置以及敌机位置
-    last_uav_point, last_enemy_center, last_uav_chase_point, last_enemy_chase_center, before_turning_uav_point, after_turning_uav_point = last_uav_move_strategy(
+    last_begin_turn_dms, meet_last_enemy_dms, chase_uav_dms, chase_enemy_dms, turning_time, chase_time = last_uav_move_strategy(
         data['minimum_speed'], data['maximum_speed'], uav_deceleration_speed, data['speed'],
         max_distance, data['detect_distance'],last_point, data['basepoint'], data['enemy_approx'], acceleration)
 
-    print("last_uav_point", last_uav_point)
-    print("enemy_point", last_enemy_center)
-    print("last_uav_chase_point", last_uav_chase_point)
-    print("last_enemy_chase_center", last_enemy_chase_center)
-    print("before_turning_uav_point", before_turning_uav_point)
-    print("after_turning_uav_point", after_turning_uav_point)
-    plot_positions_with_centers(data['first_uavs'], data['second_uavs'], data['enemy_approx'], last_point, last_uav_point, last_enemy_center,last_uav_chase_point, last_enemy_chase_center,before_turning_uav_point,after_turning_uav_point,converter)
+    # print("last_uav_point", last_uav_point)
+    # print("enemy_point", last_enemy_center)
+    # print("last_uav_chase_point", last_uav_chase_point)
+    # print("last_enemy_chase_center", last_enemy_chase_center)
+    # print("before_turning_uav_point", before_turning_uav_point)
+    # print("after_turning_uav_point", after_turning_uav_point)
+    # plot_positions_with_centers(data['first_uavs'], data['second_uavs'], data['enemy_approx'], last_point, last_uav_point, last_enemy_center,last_uav_chase_point, last_enemy_chase_center,before_turning_uav_point,after_turning_uav_point,converter)
 
 
 
