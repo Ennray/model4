@@ -210,12 +210,14 @@ def angle_with_latitude_line(bearing):
     返回无人机方向与纬线（东西方向）之间的夹角（单位：度）
     结果范围在 [0, 180]
     """
-    # 纬线方向为正东（90度），求夹角
-    angle_diff = abs(bearing - 90)
-    # 夹角应为 0~180 范围
-    if angle_diff > 180:
-        angle_diff = 360 - angle_diff
-    return angle_diff
+
+    diff = abs(bearing - 90)  # 纬线是东西方向，参考角为90°
+    if diff > 180:
+        diff = 360 - diff
+    return diff
+
+
+
 
 
 def calculate_turning_position_with_bearing(lat, lon, alt, turning_radius, angle_deg, bearing_deg, direction='left'):
@@ -314,6 +316,7 @@ def last_uav_move_strategy(uav_speed, uav_max_speed, uav_deceleration_speed, ene
 
     #求飞行方向
     bearing =  converter.calculate_flight_bearing(lat, lon, enemy_lat, enemy_lon)
+    print(f"<UNK> = {bearing:.6f}")
     bearing_enemy = converter.calculate_flight_bearing(enemy_lat, enemy_lon, lat, lon)
 
     #球面预测加速后飞行点
@@ -373,6 +376,10 @@ def last_uav_move_strategy(uav_speed, uav_max_speed, uav_deceleration_speed, ene
 
 
     bearing_rel =  converter.calculate_flight_bearing(uav_meet_lat, uav_meet_lon, enemy_lat, enemy_lon)
+    print("输出两个坐标",uav_meet_lon,enemy_lon)
+    print("开始转弯时无人机的位置：", last_begin_turn_dms)
+    print("敌群最开始中心位置:",enemy_center)
+    print("航向角：", bearing_rel)
     #得到转弯angle_deg后的无人机dms位置
     after_turning_last_uav_dms = after_turn_position(turning_radius, last_begin_turn_dms, angle_deg, bearing_rel, direction = 'right')
     turn_uav_lat, turn_uav_lon, turn_uav_alt = GeodeticConverter.decimal_dms_to_degrees(after_turning_last_uav_dms)
@@ -468,6 +475,69 @@ def plot_positions_with_centers(uav_first_geo_init, uav_second_geo_init,
     plt.tight_layout()
     plt.show()
 #无人机路径记录
+    import plotly.graph_objects as go
+
+    # 示例点：可替换为你自己的经纬度+海拔数据（单位：° + m）
+    points = {
+        'Enemy Init': [128.32688, 29.466, 5000],
+        'UAV Meet': [128.35, 29.55, 5200],
+        'Turn UAV': [128.38, 29.60, 5100]
+    }
+
+    # 提取坐标
+    xs = [pt[0] for pt in points.values()]  # 经度
+    ys = [pt[1] for pt in points.values()]  # 纬度
+    zs = [pt[2] for pt in points.values()]  # 高度
+    labels = list(points.keys())
+    colors = ['red', 'green', 'purple']
+    sizes = [10, 10, 10]
+
+    # 创建各个点
+    scatter_points = []
+    for i in range(len(xs)):
+        scatter_points.append(go.Scatter3d(
+            x=[xs[i]],
+            y=[ys[i]],
+            z=[zs[i]],
+            mode='markers+text',
+            marker=dict(size=sizes[i], color=colors[i]),
+            name=labels[i],
+            text=[labels[i]],
+            textposition="top center",
+            hovertemplate=
+            f"<b>{labels[i]}</b><br>" +
+            "Lon: %{x}<br>Lat: %{y}<br>Alt: %{z} m<br><extra></extra>"
+        ))
+
+    # 示例轨迹线：你可以换成更复杂的路径
+    path = go.Scatter3d(
+        x=[points['UAV Meet'][0], points['Turn UAV'][0]],
+        y=[points['UAV Meet'][1], points['Turn UAV'][1]],
+        z=[points['UAV Meet'][2], points['Turn UAV'][2]],
+        mode='lines',
+        line=dict(color='black', width=4),
+        name='UAV Turn Path'
+    )
+
+    # 绘制图形
+    fig = go.Figure(data=scatter_points + [path])
+
+    # 设置显示参数
+    fig.update_layout(
+        scene=dict(
+            xaxis_title='Longitude (°E)',
+            yaxis_title='Latitude (°N)',
+            zaxis_title='Altitude (m)',
+            xaxis=dict(range=[min(xs) - 0.1, max(xs) + 0.1]),
+            yaxis=dict(range=[min(ys) - 0.1, max(ys) + 0.1]),
+            zaxis=dict(range=[min(zs) - 1000, max(zs) + 1000]),
+        ),
+        margin=dict(l=0, r=0, t=50, b=0),
+        title='Geodetic UAV vs Enemy Visualization',
+        showlegend=True
+    )
+
+    fig.show()
 
 
 if __name__ == "__main__":
