@@ -10,6 +10,7 @@ from sklearn.cluster import DBSCAN
 from geopy.distance import distance
 from geopy import Point
 import plotly.graph_objs as go
+import plotly.graph_objects as go
 
 from numpy.ma.core import remainder
 
@@ -475,13 +476,42 @@ def plot_positions_with_centers(uav_first_geo_init, uav_second_geo_init,
     plt.tight_layout()
     plt.show()
 #无人机路径记录
-    import plotly.graph_objects as go
 
+def plot_positions(uav_first_geo_init, uav_second_geo_init,
+                                enemy_center_init, last_uav,
+                                meet_last_enemy_center, meet_last_uav_point,
+                                after_turn_last_uav, chase_last_point, chase_enemy_center):
     # 示例点：可替换为你自己的经纬度+海拔数据（单位：° + m）
+    # ==================================点位转坐标=============================================
+    # 初始第1波点位 uav_dms, enemy_dms,
+    first_uav_init_lats, first_uav_init_lons, first_uav_init_alts = geo_to_degrees(uav_first_geo_init)
+    # 初始第2波点位
+    second_uav_init_lats, second_uav_inti_lons, second_uav_init_alts = geo_to_degrees(uav_second_geo_init)
+
+    # ===================================敌群中心转坐标============================================
+    # 初始中心（已知）
+    enemy_center_init_lat, enemy_center_init_lon, enemy_center_init_alt = GeodeticConverter.decimal_dms_to_degrees(
+        enemy_center_init)  # 开始敌群中心
+    last_enemy_center_lat, last_enemy_center_lon, last_enemy_center_alt = GeodeticConverter.decimal_dms_to_degrees(
+        meet_last_enemy_center)  # 遇到最后一架无人机开始转弯敌群中心
+    last_chase_enemy_lat, last_chase_enemy_lon, last_chase_enemy_alt = GeodeticConverter.decimal_dms_to_degrees(
+        chase_enemy_center)  # 被最后一架无人机追上时的位置
+
+    # ==================================最后一架无人机============================================
+    last_lat, last_lon, last_alt = GeodeticConverter.decimal_dms_to_degrees(last_uav)  # 开始
+    meet_last_lat, meet_last_lon, meet_last_alt = GeodeticConverter.decimal_dms_to_degrees(
+        meet_last_uav_point)  # 刚与敌群相遇时的点位
+    after_turn_last_lat, after_turn_last_lon, after_turn_last_alt = GeodeticConverter.decimal_dms_to_degrees(
+        after_turn_last_uav)  # 转弯之后的点位
+    chase_last_lat, chase_last_lon, chase_last_alt = GeodeticConverter.decimal_dms_to_degrees(
+        chase_last_point)  # 追击后的点位
+
     points = {
-        'Enemy Init': [128.32688, 29.466, 5000],
-        'UAV Meet': [128.35, 29.55, 5200],
-        'Turn UAV': [128.38, 29.60, 5100]
+        'Last Enemy center ': [last_enemy_center_lat, last_enemy_center_lon, last_enemy_center_alt],
+        'Last Chase Enemy': [last_chase_enemy_lat, last_chase_enemy_lon, last_chase_enemy_alt],
+        'Meet Last UAV': [meet_last_lat, meet_last_lon, meet_last_alt],
+        'After Turn Last UAV': [after_turn_last_lat, after_turn_last_lon, after_turn_last_alt],
+        'Chase Last UAV': [chase_last_lat, chase_last_lon, chase_last_alt],
     }
 
     # 提取坐标
@@ -489,8 +519,8 @@ def plot_positions_with_centers(uav_first_geo_init, uav_second_geo_init,
     ys = [pt[1] for pt in points.values()]  # 纬度
     zs = [pt[2] for pt in points.values()]  # 高度
     labels = list(points.keys())
-    colors = ['red', 'green', 'purple']
-    sizes = [10, 10, 10]
+    colors = ['red', 'pink', 'purple', 'blue', 'cyan']
+    sizes = [10, 10, 10, 10, 10]
 
     # 创建各个点
     scatter_points = []
@@ -511,9 +541,9 @@ def plot_positions_with_centers(uav_first_geo_init, uav_second_geo_init,
 
     # 示例轨迹线：你可以换成更复杂的路径
     path = go.Scatter3d(
-        x=[points['UAV Meet'][0], points['Turn UAV'][0]],
-        y=[points['UAV Meet'][1], points['Turn UAV'][1]],
-        z=[points['UAV Meet'][2], points['Turn UAV'][2]],
+        x=[points['Meet Last UAV'][0], points['Meet Last UAV'][0]],
+        y=[points['Meet Last UAV'][1], points['Meet Last UAV'][1]],
+        z=[points['Meet Last UAV'][2], points['Meet Last UAV'][2]],
         mode='lines',
         line=dict(color='black', width=4),
         name='UAV Turn Path'
@@ -589,9 +619,9 @@ if __name__ == "__main__":
         max_distance, data['detect_distance'],last_point, data['basepoint'], data['enemy_approx'], acceleration)
 
 
-    plot_positions_with_centers(data['first_uavs'], data['second_uavs'], data['enemy_approx'], last_point,
+    plot_positions(data['first_uavs'], data['second_uavs'], data['enemy_approx'], last_point,
                                 meet_last_enemy_dms, last_begin_turn_dms,
-                                after_turning_last_uav_dms, chase_uav_dms, chase_enemy_dms, converter)
+                                after_turning_last_uav_dms, chase_uav_dms, chase_enemy_dms)
 
 
 
