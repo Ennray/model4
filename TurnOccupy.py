@@ -476,20 +476,28 @@ def first_uav_move_strategy(uav_speed, uav_dec_speed, uav_max_speed, enemy_speed
     bearing_enemy = converter.calculate_flight_bearing(enemy_lat, enemy_lon, first_uav_center_lat, first_uav_center_lon)
 
     for i,uav in enumerate(first_sorted_uav):
-        print("first_sorted_uav", first_sorted_uav[i])
-        #排序取无人机的第一个元素
 
-        # first_uav = converter.local_to_geodetic_dms(converter.geodetic_to_local(uav[0][0], uav[0][1], uav[0][2]))
-        # print("first_uav", first_uav)
-        # print("排序后无人机点位",uav[0].tolist())
-        # uav_lat, uav_lon, uav_alt = GeodeticConverter.decimal_dms_to_degrees(first_uav)
-        # print("换算后",uav_lat,uav_lon,uav_alt)
-        #
-        # #求无人机转弯开始时的点位
-        # meet_uav_lat, meet_uav_lon, meet_uav_alt = converter.calculate_destination_point(
-        #     uav_lat, uav_lon, uav_alt, bearing, meet_time_info[i][3], 0)
-        # meet_uav_dms = converter.local_to_geodetic_dms(converter.geodetic_to_local(meet_uav_lat, meet_uav_lon, meet_uav_alt))
-        # print("第1波次无人机的点位分别是:",meet_uav_dms)
+        #排序后无人机的dms坐标
+        first_uav = uav[3]
+        print("first_uav", first_uav)
+        #dms转度数
+        uav_lat, uav_lon, uav_alt = GeodeticConverter.decimal_dms_to_degrees(first_uav)
+
+        #求无人机转弯开始时的点位
+        meet_uav_lat, meet_uav_lon, meet_uav_alt = converter.calculate_destination_point(
+            uav_lat, uav_lon, uav_alt, bearing, meet_time_info[i][3], 0)
+        meet_uav_dms = converter.local_to_geodetic_dms(converter.geodetic_to_local(meet_uav_lat, meet_uav_lon, meet_uav_alt))
+
+        # 当前假设转弯180度
+        angle_deg = 180
+        angle_deg_rad = math.radians(angle_deg)
+
+        # 计算转弯半径（目前转弯速度和转弯半径均相同）
+        turning_radius = (uav_deceleration_speed ** 2) / (GRAVITY_EARTH * math.tan(math.radians(45)))  # (uav_deceleration_speed**2) * (math.cos(angle_rad)**2))
+        turning_time = (angle_deg_rad * turning_radius) / uav_deceleration_speed
+
+
+
 
 
 
@@ -704,7 +712,7 @@ if __name__ == "__main__":
         max_distance, data['detect_distance'],last_point, data['basepoint'], data['enemy_approx'], acceleration)
 
 
-    # ===========================处理第1波次无人机===============================
+    # =================================处理第1波次无人机===========================================
 
     #求第1波次无人机中心
     first_uav_center = calculate_center_dms(data['first_uavs'])
