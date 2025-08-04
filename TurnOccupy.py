@@ -40,15 +40,34 @@ def sorted_y_points(second_points, converter):
 
 
 #对第1批或第2批uav进行排序，由敌群的近到远
-def first_sorted_y_points(first_points,converter):
+def first_sorted_y_points(first_points, uav_center, enemy_center):
     first = []
     i = 0
+
+    #将我方中心，敌方中心都转度数
+    uav_center_lat, uav_center_lon, uav_center_alt = GeodeticConverter.decimal_dms_to_degrees(uav_center)
+    enemy_center_lat, enemy_center_lon, enemy_center_alt = GeodeticConverter.decimal_dms_to_degrees(enemy_center)
+
+    #计算整体飞行方向
+    flight_bearing = converter.calculate_flight_bearing(uav_center_lat, uav_center_lon, enemy_center_lat,enemy_center_lon)
+
     for point in first_points:
+        print("point", point)
         lat, lon ,alt = GeodeticConverter.decimal_dms_to_degrees(point)
-        point_local = converter.geodetic_to_local(lat,lon,alt)
-        first.append([point_local, i, 0])
+
+        #每架无人机的飞行方向，并将其投影到整体移动方向上（适用于几百公里内）
+        uav_bearing = converter.calculate_flight_bearing(lat, lon, enemy_center_lat, enemy_center_lon)
+        delta_angle = abs(flight_bearing - uav_bearing)
+        delta_angle = min(delta_angle, 360 - delta_angle)
+
+        #计算每架无人机飞行球面距离
+        dist = converter.calculate_spherical_distance(lat, lon, alt, enemy_center_lat, enemy_center_lon, alt)
+        projected_dist = dist * math.cos(math.radians(delta_angle))
+
+        first.append([projected_dist, i, 0, point])
         i = i + 1
-    first_sorted = sorted(first, key=lambda item: item[0][1], reverse=True)#按y轴降序排序
+
+    first_sorted = sorted(first, key=lambda item: item[0], reverse=False)#按投影后的距离由小到大的顺序进行排序
     return first_sorted
 
 
@@ -415,14 +434,13 @@ def first_meet_enemy_time(uav_sorted, enemy_pos, uav_speed, uav_deceleration_spe
     for i,uav in enumerate(uav_sorted):
 
         #取排序无人机的第一个元素
-        uav_pos = uav[0].tolist()
+        uav_pos = uav[3]
         #记录编号
         uav_number = uav [1]
-        print("uav_number",uav_number)
+        #print("uav_number",uav_number)
 
         #无人机直角坐标转经纬度再转度数
-        dms_uav_pos = converter.local_to_geodetic_dms(uav_pos)
-        lat, lon ,alt = GeodeticConverter.decimal_dms_to_degrees(dms_uav_pos)
+        lat, lon ,alt = GeodeticConverter.decimal_dms_to_degrees(uav_pos)
 
         #快到转弯点时要减速，求减速时间和距离
         deceleration_time = (uav_speed - uav_deceleration_speed) / acceleration
@@ -440,7 +458,7 @@ def first_meet_enemy_time(uav_sorted, enemy_pos, uav_speed, uav_deceleration_spe
 
         # 添加到meet_time列表中
         meet_time_info.append((uav_number, total_time, uniform_time, distance_uav))
-    print("meet_time_all:",meet_time_info)
+    #print("meet_time_all:",meet_time_info)
     return meet_time_info
 
 #第1波次无人机飞行策略
@@ -461,7 +479,7 @@ def first_uav_move_strategy(uav_speed, uav_dec_speed, uav_max_speed, enemy_speed
     for i,uav in enumerate(first_sorted_uav):
         print("first_sorted_uav", first_sorted_uav[i])
         #排序取无人机的第一个元素
-        print("zuobaio", uav[0][0], uav[0][1], uav[0][2])
+
         # first_uav = converter.local_to_geodetic_dms(converter.geodetic_to_local(uav[0][0], uav[0][1], uav[0][2]))
         # print("first_uav", first_uav)
         # print("排序后无人机点位",uav[0].tolist())
@@ -688,11 +706,12 @@ if __name__ == "__main__":
 
 
     # ===========================处理第1波次无人机===============================
-    # 对第一批次无人机进行排序，距离敌群由近到远，并计算相遇时间（包含安全距离）
-    first_uav_sorted = first_sorted_y_points(data['first_uavs'], converter)
 
     #求第1波次无人机中心
     first_uav_center = calculate_center_dms(data['first_uavs'])
+
+    # 对第一批次无人机进行排序，距离敌群由近到远，并计算相遇时间（包含安全距离）
+    first_uav_sorted = first_sorted_y_points(data['first_uavs'], first_uav_center, data['enemy_approx'])
 
     first_uav_move_strategy(data['minimum_speed'], uav_deceleration_speed, data['maximum_speed'], data['speed'], first_uav_sorted, first_uav_center,
                              data['enemy_approx'], 1000, acceleration)
