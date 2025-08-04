@@ -483,7 +483,7 @@ def first_uav_move_strategy(uav_speed, uav_dec_speed, uav_max_speed, enemy_speed
         #dms转度数
         uav_lat, uav_lon, uav_alt = GeodeticConverter.decimal_dms_to_degrees(first_uav)
 
-        #求无人机转弯开始时的点位
+        #求无人机转弯开始时的点位（输出）
         meet_uav_lat, meet_uav_lon, meet_uav_alt = converter.calculate_destination_point(
             uav_lat, uav_lon, uav_alt, bearing, meet_time_info[i][3], 0)
         meet_uav_dms = converter.local_to_geodetic_dms(converter.geodetic_to_local(meet_uav_lat, meet_uav_lon, meet_uav_alt))
@@ -495,6 +495,10 @@ def first_uav_move_strategy(uav_speed, uav_dec_speed, uav_max_speed, enemy_speed
         # 计算转弯半径（目前转弯速度和转弯半径均相同）
         turning_radius = (uav_deceleration_speed ** 2) / (GRAVITY_EARTH * math.tan(math.radians(45)))  # (uav_deceleration_speed**2) * (math.cos(angle_rad)**2))
         turning_time = (angle_deg_rad * turning_radius) / uav_deceleration_speed
+
+        bearing_rel = converter.calculate_flight_bearing(meet_uav_lat, meet_uav_lon, enemy_lat, enemy_lon)
+
+
 
 
 
