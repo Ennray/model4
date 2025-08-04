@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import math
 import sympy as sp
+from sympy.core.sympify import converter
 from sympy.physics.units import acceleration
 
 
@@ -49,6 +50,31 @@ def first_sorted_y_points(first_points,converter):
         i = i + 1
     first_sorted = sorted(first, key=lambda item: item[0][1], reverse=True)#按y轴降序排序
     return first_sorted
+
+
+#计算第1波次或第2波次无人机中心
+def calculate_center_dms(uav_dms):
+
+    decimal_positions = []
+
+    #遍历每个函数，得到度数分量
+    for dms_pos in uav_dms:
+        lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(dms_pos)
+        decimal_positions.append((lat, lon, alt))
+
+    #对所有分量求平均值
+    lats = [p[0] for p in decimal_positions]
+    lons = [p[1] for p in decimal_positions]
+    alts = [p[2] for p in decimal_positions]
+
+    center_lat = np.mean(lats)
+    center_lon = np.mean(lons)
+    center_alt = np.mean(alts)
+
+    #分量转local再转dms
+    uav_center_dms = converter.local_to_geodetic_dms(converter.geodetic_to_local(center_lat, center_lon, center_alt))
+
+    return uav_center_dms
 
 
 #聚类分析有多少个纵队并分别记录
@@ -353,6 +379,7 @@ def last_uav_move_strategy(uav_speed, uav_max_speed, uav_deceleration_speed, ene
     print("开始转弯时无人机的位置：", last_begin_turn_dms)
     print("敌群最开始中心位置:",enemy_center)
     print("航向角：", bearing_rel)
+
     #得到转弯angle_deg后的无人机dms位置
     after_turning_last_uav_dms = after_turn_position(turning_radius, last_begin_turn_dms, angle_deg, bearing_rel, direction = 'right')
     turn_uav_lat, turn_uav_lon, turn_uav_alt = GeodeticConverter.decimal_dms_to_degrees(after_turning_last_uav_dms)
@@ -432,17 +459,23 @@ def first_uav_move_strategy(uav_speed, uav_dec_speed, uav_max_speed, enemy_speed
     bearing_enemy = converter.calculate_flight_bearing(enemy_lat, enemy_lon, first_uav_center_lat, first_uav_center_lon)
 
     for i,uav in enumerate(first_sorted_uav):
-
+        print("first_sorted_uav", first_sorted_uav[i])
         #排序取无人机的第一个元素
-        first_uav = converter.local_to_geodetic_dms(uav[0].tolist())
-        uav_lat, uav_lon, uav_alt = GeodeticConverter.decimal_dms_to_degrees(first_uav)
+        print("zuobaio", uav[0][0], uav[0][1], uav[0][2])
+        # first_uav = converter.local_to_geodetic_dms(converter.geodetic_to_local(uav[0][0], uav[0][1], uav[0][2]))
+        # print("first_uav", first_uav)
+        # print("排序后无人机点位",uav[0].tolist())
+        # uav_lat, uav_lon, uav_alt = GeodeticConverter.decimal_dms_to_degrees(first_uav)
+        # print("换算后",uav_lat,uav_lon,uav_alt)
+        #
+        # #求无人机转弯开始时的点位
+        # meet_uav_lat, meet_uav_lon, meet_uav_alt = converter.calculate_destination_point(
+        #     uav_lat, uav_lon, uav_alt, bearing, meet_time_info[i][3], 0)
+        # meet_uav_dms = converter.local_to_geodetic_dms(converter.geodetic_to_local(meet_uav_lat, meet_uav_lon, meet_uav_alt))
+        # print("第1波次无人机的点位分别是:",meet_uav_dms)
 
-        #求无人机转弯时的点位
-        meet_uav_lat, meet_uav_lon, meet_uav_alt = converter.calculate_destination_point(
-            uav_lat, uav_lon, uav_alt, bearing, meet_time_info[i][3], 0)
 
 
-        print("meet_time", meet_time_info[i][3])
 
 
 
@@ -657,8 +690,12 @@ if __name__ == "__main__":
     # ===========================处理第1波次无人机===============================
     # 对第一批次无人机进行排序，距离敌群由近到远，并计算相遇时间（包含安全距离）
     first_uav_sorted = first_sorted_y_points(data['first_uavs'], converter)
-    first_uav_move_strategy(data['minimum_speed'], uav_deceleration_speed, data['maximum_speed'], data['speed'], first_uav_sorted,
-                            data['enemy_approx'], 1000, acceleration)
+
+    #求第1波次无人机中心
+    first_uav_center = calculate_center_dms(data['first_uavs'])
+
+    first_uav_move_strategy(data['minimum_speed'], uav_deceleration_speed, data['maximum_speed'], data['speed'], first_uav_sorted, first_uav_center,
+                             data['enemy_approx'], 1000, acceleration)
 
 
 
