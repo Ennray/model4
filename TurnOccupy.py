@@ -70,7 +70,6 @@ def first_sorted_y_points(first_points, uav_center, enemy_center):
     first_sorted = sorted(first, key=lambda item: item[0], reverse=False)#按投影后的距离由小到大的顺序进行排序
     return first_sorted
 
-
 #计算第1波次或第2波次无人机中心
 def calculate_center_dms(uav_dms):
 
@@ -721,6 +720,26 @@ if __name__ == "__main__":
     plot_positions(data['first_uavs'], data['second_uavs'], data['enemy_approx'], last_point,
                                 meet_last_enemy_dms, last_begin_turn_dms,
                                 after_turning_last_uav_dms, chase_uav_dms, chase_enemy_dms)
+
+
+
+
+
+
+
+
+
+    #数据输出
+    outdata.save_uav_multi_positions(data['minimum_speed'], acceleration, data['maximum_speed'], 100, data['speed'],
+                                     data['first_uavs'], data['second_uavs'], data['enemy_approx'],
+                                     last_begin_turn_dms, after_turning_last_uav_dms, chase_uav_dms,
+                                     time_detect, turning_time, chase_time,
+                                     None, None, None,
+                                     None, None, None,
+                                     None, None, None,
+                                     None, None, None)
+
+
 
 
 

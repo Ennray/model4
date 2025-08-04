@@ -1,28 +1,64 @@
 import json
 
 def save_uav_multi_positions(
-    uavs_speed,
+    uavs_current_speed, acceleration, uav_max_speed, uav_turn_speed,
     enemy_speed,
-    our_init_positions,
-    enemy_init_positions,
-    our_pre_turn_positions,
-    our_post_turn_positions,
-    enemy_end_positions,
+    first_init_point, second_init_point, enemy_init_point,
+
+    last_uav_turn_point, last_uav_after_turn_point, last_uav_chase_point,
+    last_uav_meet_time, last_uav_turn_time, last_uav_chase_time,
+
+    first_uav_turn_point, first_uav_after_turn_point, first_uav_chase_point,
+    first_uav_meet_time, first_uav_turn_time, first_uav_chase_time,
+
+    second_uav_turn_point, second_uav_after_turn_point, second_uav_chase_point,
+    second_uav_meet_time, second_uav_turn_time, second_uav_chase_time,
+
     filename="uav_full_path_record.json"
 ):
     data = {
         "uavs_speed": {
-            "current": uavs_speed[0],
-            "acceleration": uavs_speed[1],
-            "deceleration": uavs_speed[2],
-            "max_speed": uavs_speed[3],
-            "turn_speed": uavs_speed[4]
+            "current": uavs_current_speed,
+            "acceleration": acceleration,
+            "max_speed": uav_max_speed,
+            "turn_speed": uav_turn_speed,
         },
         "enemy_speed": enemy_speed,
-        "our_initial_positions": our_init_positions,
-        "enemy_initial_positions": enemy_init_positions,
-        "our_pre_turn_positions": our_pre_turn_positions,
-        "our_post_turn_positions": our_post_turn_positions
+        #==================初始信息===================
+        "first_init_point": first_init_point,
+        "second_init_point": second_init_point,
+        "enemy_init_point":enemy_init_point,
+
+        #==============最后一架无人机移动点位============
+        "last_uav_turn_point": last_uav_turn_point,
+        "last_uav_after_turn_point": last_uav_after_turn_point,
+        "last_uav_chase_point": last_uav_chase_point,
+
+        #==============最后一架无人机移动时间============
+        "last_uav_meet_time": last_uav_meet_time,
+        "last_uav_turn_time": last_uav_turn_time,
+        "last_uav_chase_time": last_uav_chase_time,
+
+        #==============第1波次无人机移动点位============
+        "first_uav_turn_point": first_uav_turn_point,
+        "first_uav_after_turn_point": first_uav_after_turn_point,
+        "first_uav_chase_point": first_uav_chase_point,
+
+        #==============第1波次无人机移动时间============
+        "first_uav_meet_time": first_uav_meet_time,
+        "first_uav_turn_time": first_uav_turn_time,
+        "first_uav_chase_time": first_uav_chase_time,
+
+        #==============第2波次无人机移动点位============
+        "second_uav_turn_point": second_uav_turn_point,
+        "second_uav_after_turn_point": second_uav_after_turn_point,
+        "second_uav_chase_point": second_uav_chase_point,
+
+        #==============第2波次无人机移动时间============
+        "second_uav_meet_time": second_uav_meet_time,
+        "second_uav_turn_time": second_uav_turn_time,
+        "second_uav_chase_time": second_uav_chase_time,
+
     }
 
     with open(filename, "w", encoding="utf-8") as f:
