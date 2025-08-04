@@ -354,7 +354,7 @@ def last_uav_move_strategy(uav_speed, uav_max_speed, uav_deceleration_speed, ene
     deceleration_time = (uav_max_speed - uav_deceleration_speed) / acceleration
     uav_deceleration_distence = uav_max_speed * deceleration_time - 0.5 * acceleration *deceleration_time **2
 
-    #匀速减速再相遇所需要的总时间 = （不减速时的距离 - 安全距离 + 不减速时的距离与考虑减速时的距离之差） / 相对时间
+    #匀速减速再相遇所需要的总时间 = （不减速时的距离 - 安全距离 + 不减速时的距离与考虑减速时的距离之差） / 相对速度
     time_move = (distance_move - safety_distance + uav_max_speed * deceleration_time - uav_deceleration_distence) / (uav_max_speed + enemy_speed)
 
     #无人机最大速度匀速前进距离
@@ -501,6 +501,41 @@ def first_uav_move_strategy(uav_speed, uav_dec_speed, uav_max_speed, enemy_speed
 
 
 
+# 航向调整1.追赶过程中敌群速度高于我方转弯后速度；2.敌群速度与我方转弯后速度一致；3.敌群速度低于我方转弯后速度
+# 航速调整：转弯之后与敌群成角度追击，需要在重点调整航向与敌群一致
+# enemy_center是敌群被追上的位置，uav_pos追上敌群在其上方，海拔不确定
+def  fine_tuning(uav_speed, enemy_speed, acceleration,bearing_enemy, enemy_center, uav_pos):
+    #航向和航速调整(航向参考模型3的整体航行方向)
+    uav_bearing = bearing_enemy
+    speed_diff = abs(enemy_speed - uav_speed)
+    tune_distance = speed_diff * (enemy_speed + uav_speed) / (2 * acceleration)
+    if enemy_speed != uav_speed:
+        fine_speed_time = speed_diff / acceleration
+        uav_speed = enemy_speed
+    
+    # 将我方敌群的海拔调整到敌群海拔上方的合理区间位置
+    enemy_lat, enemy_lon, enemy_alt = GeodeticConverter.decimal_dms_to_degrees(enemy_center)#当前敌群位置
+    uav_chase_lat, uav_chase_lon, uav_chase_alt = GeodeticConverter.decimal_dms_to_degrees(uav_pos)#当前我方位置（已完成追赶）
+    min_height_diff = 50 #需要修改
+    max_height_diff = 500 #需要修改
+    #激光雷达实时测量敌我垂直高度current_diff，这里先通过计算得到差值
+    # 情况1：高度差过小，需要上升
+    current_diff = uav_chase_alt - enemy_alt
+    if current_diff < min_height_diff:
+        adjustment = min_height_diff - current_diff
+        new_uav_chase_alt = uav_chase_alt + adjustment
+    # 情况2：高度差过大，需要下降
+    elif current_diff > max_height_diff:
+        adjustment = current_diff - max_height_diff
+        new_uav_chase_alt = uav_chase_alt - adjustment
+    # 情况3：高度差合适，保持当前高度
+    else:
+        new_uav_chase_alt = uav_chase_alt
+    #高度控制
+    uav_chase_new_pos = [uav_chase_lat, uav_chase_lon,new_uav_chase_alt]
+    print("uav_chase_new_pos:", uav_chase_new_pos)
+
+    return uav_bearing, uav_speed, uav_chase_new_pos
 
 
 
@@ -706,8 +741,12 @@ if __name__ == "__main__":
     last_point = converter.local_to_geodetic_dms(sorted_second[0][0])
     print("*******", last_point)
 
+
+
+   
     #计算最后一架无人机转弯起点位置、转弯180度后位置、追赶位置以及敌方中心在我方无人机开始转弯时位置、被追赶上位置；转弯时间，追逐时间
     last_begin_turn_dms, after_turning_last_uav_dms, chase_uav_dms, meet_last_enemy_dms, chase_enemy_dms, turning_time, chase_time = last_uav_move_strategy(
+
         data['minimum_speed'], data['maximum_speed'], uav_deceleration_speed, data['speed'],
         max_distance, data['detect_distance'],last_point, data['basepoint'], data['enemy_approx'], acceleration)
 
