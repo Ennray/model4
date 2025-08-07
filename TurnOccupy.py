@@ -514,13 +514,13 @@ def first_uav_move_strategy(uav_speed, uav_dec_speed, uav_max_speed, enemy_speed
     start_enemy = converter.local_to_geodetic_dms(
                     converter.geodetic_to_local(start_enemy_lat, start_enemy_lon, start_enemy_alt))
 
-    #更新第1波次无人机中心位置
+    #更新第1波或第2波次无人机中心位置
     start_center_lat, start_center_lon, start_center_alt = converter.calculate_destination_point(
                     center_lat, center_lon, center_alt, bearing, distance_uav, 0)
     start_center_uav = converter.local_to_geodetic_dms(
                     converter.geodetic_to_local(start_center_lat, start_center_lon, start_center_alt))
 
-    #获得排序后第1波次无人机相遇时间（含减速到100的时间）
+    #获得排序后第1波或第2波次无人机相遇时间（含减速到100的时间）
     meet_time_info = first_meet_enemy_time(start_first_uav_dms, start_enemy, uav_speed, uav_dec_speed, enemy_speed, safety_distance, acceleration)
 
     #从时间信息表中获取平均匀速时间
@@ -895,8 +895,10 @@ if __name__ == "__main__":
     #求第2波次无人机中心
     second_uav_center = calculate_center_dms(data['second_uavs'])
 
+
     #对第2波次无人机按y从小到大进行排序，得到sorted_second[0]就是末尾那架无人机
-    sorted_second = uav_sorted_distances_points(data['second_uavs'], second_uav_center, data['enemy_approx'], reverse = True)
+    second_uav_sorted, second_sorted_dms = uav_sorted_distances_points(data['second_uavs'], second_uav_center, data['enemy_approx'], reverse = True)
+    # print("最后一架无人机:", second_sorted_dms[0])
 
     #已知敌机中心和经纬度范围求得敌机距离base的最大距离，即最远边界值
     max_distance, max_enemy_dms, min_distance, min_enemy_dms = max_distance(data['basepoint'], data['enemy_approx'], data['enemy_latrange'], data['enemy_lonrange'])
@@ -906,7 +908,7 @@ if __name__ == "__main__":
     time_detect = function_last_detection_time(data['minimum_speed'], data['speed'], max_distance, data['detect_distance'])
     # print("time_detect = ", time_detect)
 
-    last_point = converter.local_to_geodetic_dms(sorted_second[0][0])
+    last_point = second_sorted_dms[0]
     # print("*******", last_point)
    
     #计算最后一架无人机转弯起点位置、转弯180度后位置、追赶位置以及敌方中心在我方无人机开始转弯时位置、被追赶上位置；转弯时间，追逐时间
@@ -924,17 +926,23 @@ if __name__ == "__main__":
     # 对第一批次无人机进行排序，距离敌群由近到远，并计算相遇时间（包含安全距离）
     first_uav_sorted, first_sorted_dms = uav_sorted_distances_points(data['first_uavs'], first_uav_center, max_enemy_dms, reverse = False)
 
-    meet_first_uav_dms, after_turn_first_uav_dms, first_uav_time_info= first_uav_move_strategy(data['minimum_speed'], uav_deceleration_speed, data['maximum_speed'], data['speed'], first_uav_sorted, first_uav_center,
+    meet_first_uav_dms, after_turn_first_uav_dms, first_uav_time_info = first_uav_move_strategy(data['minimum_speed'], uav_deceleration_speed, data['maximum_speed'], data['speed'], first_uav_sorted, first_uav_center,
                              max_enemy_dms, 1000, acceleration, time_detect)
 
 
     # =================================处理第2波次无人机===========================================
 
+    remain_second_uav_sorted = second_uav_sorted[1:]
+    # print("全部的以及剩余的:", second_uav_sorted)
+    # print("剩余的:", remain_second_uav_sorted)
+
+    meet_second_uav_dms, after_turn_second_uav_dms, second_uav_time_info = first_uav_move_strategy(data['minimum_speed'], uav_deceleration_speed, data['maximum_speed'], data['speed'], remain_second_uav_sorted, second_uav_center,
+                             max_enemy_dms, 1000, acceleration, time_detect)
 
 
 
 
-    time_uav_info = generate_uav_time_info(last_time_info, first_uav_time_info, None)
+    time_uav_info = generate_uav_time_info(last_time_info, first_uav_time_info, second_uav_time_info)
     print("总时间信息表！！！！！:", time_uav_info)
 
 
