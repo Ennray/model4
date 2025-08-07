@@ -2,7 +2,7 @@
   "uavs_speed": {
     "current": 200,
     "acceleration": 80,
-    "max_speed": 300,
+    "max_speed": 500,
     "turn_speed": 100
   },
   "enemy_speed": 240,
@@ -391,21 +391,21 @@
     "5000.0"
   ],
   "last_uav_turn_point": [
-    "124:6:59.66E",
-    "29:42:17.37N",
+    "124:7:39.63E",
+    "29:42:54.81N",
     "6000.00"
   ],
   "last_uav_after_turn_point": [
-    "124:6:54.04E",
-    "29:41:11.34N",
+    "124:7:34.27E",
+    "29:41:48.77N",
     "6000.00"
   ],
   "last_uav_chase_point": [
-    "123:55:24.02E",
-    "29:43:7.73N",
+    "123:56:40.33E",
+    "29:43:35.39N",
     "6000.00"
   ],
-  "last_uav_meet_time": 1623.189967189379,
+  "last_uav_meet_time": 1628.2343662824815,
   "last_uav_turn_time": 32.03532963437865,
   "last_uav_chase_time": 52.20984660326898,
   "first_uav_turn_point": null,

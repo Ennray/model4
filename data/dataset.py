@@ -13,7 +13,7 @@ def dataset():
     detect_distance = 30000
     
     # 速度参数
-    maximum_speed = 300
+    maximum_speed = 500
     minimum_speed = 200
     speed = 240
     
@@ -31,10 +31,10 @@ def dataset():
     enemy_number = 300
     
     # 敌方经度范围
-    enemy_lonrange = ['128:19:28:48E', '128:19:45:06E']
+    enemy_lonrange = ['128:18:13.82E', '128:20:59.72E']
     
     # 敌方纬度范围
-    enemy_latrange = ['29:27:52:54N', '29:28:07:68N']
+    enemy_latrange = ['29:29:32.45N', '29:26:27.77N']
     
     # 第一批无人机数量
     first_num = 45
