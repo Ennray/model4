@@ -2,8 +2,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 import math
 import sympy as sp
+from numpy.testing.print_coercion_tables import print_new_cast_table
 from sympy.core.sympify import converter
 from sympy.physics.units import acceleration
+from scipy.optimize import linear_sum_assignment
+from geopy.distance import geodesic
 
 
 import velocity_recong
@@ -12,6 +15,7 @@ from geopy.distance import distance
 from geopy import Point
 import plotly.graph_objs as go
 import plotly.graph_objects as go
+
 
 from numpy.ma.core import remainder
 
@@ -25,20 +29,6 @@ from sympy import symbols, solve, Eq, sqrt
 
 GRAVITY_EARTH = 9.80665  # 地球表面重力加速度
 R = 6371000  # 地球半径，单位：米
-
-#先对UAV2按照y轴，即距离敌方的远近进行排序
-def sorted_y_points(second_points, converter):
-    seconds = []
-    i = 0
-    for point in second_points:
-        lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(point)
-        point_local = converter.geodetic_to_local(lat, lon, alt)
-        seconds.append([point_local, i, 0])
-        i += 1
-    seconds_sorted = sorted(seconds, key=lambda item: item[0][1], reverse=False)#按y轴升序排序
-    return seconds_sorted
-
-
 
 
 
@@ -149,11 +139,11 @@ def to_local(pos_dms, converter):
 #计算第1波无人机距离敌群的最远距离
 def max_distance(basepoint, enemy_center, lat_range, lon_range):
     #敌方四个角dms格式
-    ne = [lon_range[1], lat_range[1], enemy_center[2]]  # 北+东
-    se = [lon_range[1], lat_range[0], enemy_center[2]]  # 南+东
-    nw = [lon_range[0], lat_range[1], enemy_center[2]]  # 北+西
-    sw = [lon_range[0], lat_range[0], enemy_center[2]]  # 南+西
-    corners = [ne, se, nw, sw]
+    ws = [lon_range[1], lat_range[1], enemy_center[2]]  # 西+南
+    wn = [lon_range[1], lat_range[0], enemy_center[2]]  # 西+北
+    es = [lon_range[0], lat_range[1], enemy_center[2]]  # 东+南
+    en = [lon_range[0], lat_range[0], enemy_center[2]]  # 东+北
+    corners = [ws, wn, es, en]
 
     #转换base为度数
     base_lat, base_lon, base_alt = GeodeticConverter.decimal_dms_to_degrees(basepoint)
@@ -258,7 +248,6 @@ def calculate_turning_position_with_bearing(lat, lon, alt, turning_radius, angle
     return end_point.latitude, end_point.longitude, alt
 
 
-
 # 计算无人机在假设转弯弧度后的点位（并未进行追击）
 def after_turn_position(turning_radius, uav_meet_dms, angle_deg, bearing_deg, direction='right'):
     # 先转度数
@@ -275,8 +264,8 @@ def after_turn_position(turning_radius, uav_meet_dms, angle_deg, bearing_deg, di
     after_turning_uav_dms = converter.local_to_geodetic_dms(
         converter.geodetic_to_local(after_turning_uav_lat, after_turning_uav_lon, after_turning_uav_alt))
 
-    print(
-        f"转弯后无人机的位置: 纬度 = {after_turning_uav_lat}, 经度 = {after_turning_uav_lon}, 高度 = {after_turning_uav_alt}")
+    # print(
+    #     f"转弯后无人机的位置: 纬度 = {after_turning_uav_lat}, 经度 = {after_turning_uav_lon}, 高度 = {after_turning_uav_alt}")
     return after_turning_uav_dms
 
 
@@ -543,6 +532,8 @@ def first_uav_move_strategy(uav_speed, uav_dec_speed, uav_max_speed, enemy_speed
     bearing_next = converter.calculate_flight_bearing(start_center_lat, start_center_lon, start_enemy_lat, start_enemy_lon)
     bearing_enemy_next = converter.calculate_flight_bearing(start_enemy_lat, start_enemy_lon, start_center_lat, start_center_lon)
 
+    print("我方移动方向:",bearing_next)
+
     for i,uav in enumerate(start_first_uav_dms):
 
         #排序后无人机的dms坐标
@@ -577,8 +568,7 @@ def first_uav_move_strategy(uav_speed, uav_dec_speed, uav_max_speed, enemy_speed
 
     first_uav_time_info.append(turning_time + first_uav_time_info[3])  # 转弯完成时间
 
-
-    return meet_first_uav_dms, after_turn_first_uav_dms, first_uav_time_info
+    return meet_first_uav_dms, after_turn_first_uav_dms, first_uav_time_info, bearing_enemy_next
 
 
 #合成时间信息表（3个批次的）
@@ -591,6 +581,205 @@ def generate_uav_time_info (last_uav_time_info, first_uav_time_info, second_uav_
     time_uav_info[2] = second_uav_time_info
 
     return time_uav_info
+
+
+
+# 进行占位计算
+
+# —— 小工具：方位角 → ENU 单位向量（x=东, y=北）——
+def bearing_to_unit_enu(bearing_deg):
+    rad = math.radians(bearing_deg % 360.0)
+    # ENU：x=East=sin(bearing), y=North=cos(bearing)
+    return np.array([math.sin(rad), math.cos(rad)], dtype=float)
+
+# —— 矩形线段求交：与“前沿直线” u·p = c 的交点 ——
+def segment_line_intersections(p1, p2, u, c):
+    # 线段参数：p(t)=p1+t*(p2-p1), t∈[0,1]
+    v = p2 - p1
+    denom = np.dot(u, v)
+    if abs(denom) < 1e-12:
+        # 平行：整段都在同一侧或重合
+        if abs(np.dot(u, p1) - c) < 1e-9 and abs(np.dot(u, p2) - c) < 1e-9:
+            # 共线：返回整个线段两端
+            return [p1.copy(), p2.copy()]
+        return []
+    t = (c - np.dot(u, p1)) / denom
+    if -1e-9 <= t <= 1 + 1e-9:
+        return [p1 + t * v]
+    return []
+
+def line_rect_intersection(rect_xy, u, c):
+    """
+    rect_xy: 4个角(顺时针/逆时针) in ENU 2D, e.g. [SW, SE, NE, NW]
+    u: forward 单位向量(2,)
+    c: 标量，使得 u·p=c 的直线与矩形相交
+    返回：与矩形相交得到的“前沿线段”的两个端点（2个点）
+    """
+    pts = []
+    for i in range(4):
+        p1 = rect_xy[i]
+        p2 = rect_xy[(i + 1) % 4]
+        pts += segment_line_intersections(p1, p2, u, c)
+    # 去重并只取两个端点
+    uniq = []
+    for p in pts:
+        if not any(np.linalg.norm(p - q) < 1e-6 for q in uniq):
+            uniq.append(p)
+    if len(uniq) > 2:
+        # 共线情况会出现多点，取投影最小/最大两个
+        projs = [np.dot(p, u) for p in uniq]
+        idx_min = int(np.argmin(projs)); idx_max = int(np.argmax(projs))
+        return [uniq[idx_min], uniq[idx_max]]
+    return uniq  # 可能是0,1或2个点
+
+def generate_placements_with_bearing(
+    enemy_center_dms, enemy_latrange_dms, enemy_lonrange_dms,
+    distance_m,  bearing_deg,
+    start_side='left', max_uavs=None, max_rows=999
+):
+
+    """
+    输入：
+      - 敌群中心（DMS）
+      - 纬度范围、经度范围（DMS，两个端点）
+      - 敌群移动方向 bearing（度，正北为0，顺时针）
+    输出：
+      - front_point_llh: (lat, lon, alt)  单个“前沿点”
+      - front_edge_llh: [(lat,lon,alt), (lat,lon,alt)]  “前沿线段”两个端点（若退化为点，两端相同）
+    """
+    # 1) 中心 & alt
+    lat_c, lon_c, alt_c = GeodeticConverter.decimal_dms_to_degrees(enemy_center_dms)
+    print('lat_c', alt_c)
+    alt = float(alt_c)
+
+    # 2) 四角（DMS→deg）
+    lat1 = GeodeticConverter.dms_to_decimal(enemy_latrange_dms[0])
+    lat2 = GeodeticConverter.dms_to_decimal(enemy_latrange_dms[1])
+    lon1 = GeodeticConverter.dms_to_decimal(enemy_lonrange_dms[0])
+    lon2 = GeodeticConverter.dms_to_decimal(enemy_lonrange_dms[1])
+
+    lat_min, lat_max = min(lat1, lat2), max(lat1, lat2)
+    lon_min, lon_max = min(lon1, lon2), max(lon1, lon2)
+
+    # 角点（顺时针）：WS, ES, EN, WN（西南，东南，东北，西北）
+    corners_llh = [
+        (lat_min, lon_min, alt),
+        (lat_min, lon_max, alt),
+        (lat_max, lon_max, alt),
+        (lat_max, lon_min, alt),
+    ]
+
+    # 3) 建 ENU 转换器（以中心为基准）
+
+    # 4) 角点转 ENU
+    corners_xy = []
+    for (la, lo, al) in corners_llh:
+        x, y, z = converter.geodetic_to_local(la, lo, al)  # East=x, North=y
+        corners_xy.append((x, y))
+    # 补回首点，便于边遍历
+    corners_xy.append(corners_xy[0])
+    print("corners_xy", corners_xy)
+
+    # 5) 前向单位向量 f（bearing: 北=0，顺时针）
+    theta = math.radians(bearing_deg)
+    fx, fy = math.sin(theta), math.cos(theta)  # ENU 中朝向
+    f = (fx, fy)
+
+    # 6) 计算各角点在 f 上的投影，取 Smax
+    projs = [fx*px + fy*py for (px, py) in corners_xy[:-1]]
+    Smax = max(projs)
+
+    # 7) 求“支撑线” dot(f, x)=Smax 与四条边的交点
+    eps = 1e-9
+    inters = []
+    for i in range(4):
+        x0, y0 = corners_xy[i]
+        x1, y1 = corners_xy[i+1]
+        dx, dy = x1 - x0, y1 - y0
+        denom = fx*dx + fy*dy  # dot(f, p1-p0)
+
+        if abs(denom) < eps:
+            # 与支撑线平行，可能整条边都在支撑线上（极罕见，矩形与方向正好对齐）
+            # 判断端点是否在支撑线上
+            if abs(fx*x0 + fy*y0 - Smax) < 1e-6 and abs(fx*x1 + fy*y1 - Smax) < 1e-6:
+                # 整条边是前沿，记录两个端点
+                inters.append((x0, y0))
+                inters.append((x1, y1))
+            # 否则没有交点
+            continue
+
+        t = (Smax - (fx*x0 + fy*y0)) / denom
+        if -eps <= t <= 1+eps:
+            # 裁剪到[0,1]
+            t = max(0.0, min(1.0, t))
+            xi, yi = x0 + t*dx, y0 + t*dy
+            # 避免重复点
+            if not inters or (abs(xi - inters[-1][0]) > 1e-6 or abs(yi - inters[-1][1]) > 1e-6):
+                inters.append((xi, yi))
+
+    # 8) 规范化交点数量
+    if len(inters) == 0:
+        # 理论上不会发生；回退到投影最大的顶点
+        idx = projs.index(Smax)
+        inters = [corners_xy[idx], corners_xy[idx]]
+    elif len(inters) == 1:
+        # 退化为前沿顶点
+        inters = [inters[0], inters[0]]
+    else:
+        # 最多留下两端点（若因共线加入了4点，取端点投影在法向的最远两点）
+        if len(inters) > 2:
+            # 用与 f 垂直的方向区分端点
+            nx, ny = -fy, fx
+            inters.sort(key=lambda p: nx*p[0] + ny*p[1])
+            inters = [inters[0], inters[-1]]
+
+    # 9) 取“前沿点” = 把原点沿 f 推到 Smax 的点，并裁剪到线段
+    # 原点在 ENU 是 (0,0)
+    x_star, y_star = fx*Smax, fy*Smax
+
+    # 将 x_star 在线段 inters[0]-inters[1] 上投影并裁剪
+    (xA, yA), (xB, yB) = inters[0], inters[1]
+    vx, vy = xB - xA, yB - yA
+    seg_len2 = vx*vx + vy*vy
+    if seg_len2 < 1e-12:
+        # 线段退化为点
+        xf, yf = xA, yA
+    else:
+        t = ((x_star - xA)*vx + (y_star - yA)*vy) / seg_len2
+        t = max(0.0, min(1.0, t))
+        xf, yf = xA + t*vx, yA + t*vy
+
+    # 10) ENU → 经纬高
+    front_point_llh = converter.local_to_geodetic((xf, yf, 0.0))
+    p0_llh = converter.local_to_geodetic((xA, yA, 0.0))
+    p1_llh = converter.local_to_geodetic((xB, yB, 0.0))
+
+    # 替换 alt
+    front_point_llh = (front_point_llh[0], front_point_llh[1], alt)
+    p0_llh = (p0_llh[0], p0_llh[1], alt)
+    p1_llh = (p1_llh[0], p1_llh[1], alt)
+
+    front_point_dms1 = converter.local_to_geodetic_dms(front_point_llh)
+    print("front_point_dms1", front_point_dms1)
+
+    return front_point_dms1, [p0_llh, p1_llh]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 # 航向调整1.追赶过程中敌群速度高于我方转弯后速度；2.敌群速度与我方转弯后速度一致；3.敌群速度低于我方转弯后速度
@@ -895,7 +1084,6 @@ if __name__ == "__main__":
     #求第2波次无人机中心
     second_uav_center = calculate_center_dms(data['second_uavs'])
 
-
     #对第2波次无人机按y从小到大进行排序，得到sorted_second[0]就是末尾那架无人机
     second_uav_sorted, second_sorted_dms = uav_sorted_distances_points(data['second_uavs'], second_uav_center, data['enemy_approx'], reverse = True)
     # print("最后一架无人机:", second_sorted_dms[0])
@@ -926,7 +1114,7 @@ if __name__ == "__main__":
     # 对第一批次无人机进行排序，距离敌群由近到远，并计算相遇时间（包含安全距离）
     first_uav_sorted, first_sorted_dms = uav_sorted_distances_points(data['first_uavs'], first_uav_center, max_enemy_dms, reverse = False)
 
-    meet_first_uav_dms, after_turn_first_uav_dms, first_uav_time_info = first_uav_move_strategy(data['minimum_speed'], uav_deceleration_speed, data['maximum_speed'], data['speed'], first_uav_sorted, first_uav_center,
+    meet_first_uav_dms, after_turn_first_uav_dms, first_uav_time_info, bearing_enemy = first_uav_move_strategy(data['minimum_speed'], uav_deceleration_speed, data['maximum_speed'], data['speed'], first_uav_sorted, first_uav_center,
                              max_enemy_dms, 1000, acceleration, time_detect)
 
 
@@ -936,8 +1124,23 @@ if __name__ == "__main__":
     # print("全部的以及剩余的:", second_uav_sorted)
     # print("剩余的:", remain_second_uav_sorted)
 
-    meet_second_uav_dms, after_turn_second_uav_dms, second_uav_time_info = first_uav_move_strategy(data['minimum_speed'], uav_deceleration_speed, data['maximum_speed'], data['speed'], remain_second_uav_sorted, second_uav_center,
+    meet_second_uav_dms, after_turn_second_uav_dms, second_uav_time_info, bearing_enemy2= first_uav_move_strategy(data['minimum_speed'], uav_deceleration_speed, data['maximum_speed'], data['speed'], remain_second_uav_sorted, second_uav_center,
                              max_enemy_dms, 1000, acceleration, time_detect)
+
+
+    print("敌群飞行方向:", bearing_enemy)
+
+    placements = generate_placements_with_bearing(
+        data['enemy_approx'], data['enemy_latrange'], data['enemy_lonrange'],
+        distance_m=400,
+        bearing_deg=270.0,  # 敌方从东向西
+        start_side='left',  # 先左（相对 forward 的左侧=南/北取决于bearing）
+        max_uavs=30, max_rows=10
+    )
+    print("试试就逝世:", placements)
+
+    for p in placements[:8]:
+        print("先试试",p)
 
 
 
