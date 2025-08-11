@@ -11,6 +11,21 @@ def load_afsim_data():
         data = json.load(f)
     return data
 
+def dms_to_decimal(dms_str):
+    """将度分秒字符串转换为十进制度数（E/N为正，W/S为负）"""
+    direction = dms_str[-1]
+    value_str = dms_str[:-1]
+    parts = value_str.split(':')
+    degrees = float(parts[0])
+    minutes = float(parts[1])
+    seconds = float(parts[2])
+    decimal = degrees + minutes / 60 + seconds / 3600
+    if direction in ['W', 'S']:
+        decimal = -decimal
+    return decimal
+
+
+
 def update_dataset():
     """使用afsim.txt的数据更新dataset.py"""
     
@@ -23,6 +38,18 @@ def update_dataset():
     # 获取所有数据
     first_uavs = afsim_data.get('first_uavs', [])
     second_uavs = afsim_data.get('second_uavs', [])
+
+    enemy_lonrange = afsim_data.get('enemy_lonrange', [])
+    enemy_latrange = afsim_data.get('enemy_latrange', [])
+
+    # 统一经度顺序 [小, 大]
+    if dms_to_decimal(enemy_lonrange[0]) > dms_to_decimal(enemy_lonrange[1]):
+        enemy_lonrange[0], enemy_lonrange[1] = enemy_lonrange[1], enemy_lonrange[0]
+
+    # 统一纬度顺序 [小, 大]
+    if dms_to_decimal(enemy_latrange[0]) > dms_to_decimal(enemy_latrange[1]):
+        enemy_latrange[0], enemy_latrange[1] = enemy_latrange[1], enemy_latrange[0]
+
     
     # 生成新的dataset.py内容
     dataset_content = '''def dataset():
@@ -57,11 +84,12 @@ def update_dataset():
     # 敌方数量
     enemy_number = ''' + str(afsim_data.get('enemy_number', 300)) + '''
     
+    
     # 敌方经度范围
-    enemy_lonrange = ''' + str(afsim_data.get('enemy_lonrange', [])) + '''
+    enemy_lonrange = ''' + str(enemy_lonrange) + '''
     
     # 敌方纬度范围
-    enemy_latrange = ''' + str(afsim_data.get('enemy_latrange', [])) + '''
+    enemy_latrange = ''' + str(enemy_latrange) + '''
     
     # 第一批无人机数量
     first_num = ''' + str(afsim_data.get('first_num', 45)) + '''

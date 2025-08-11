@@ -169,10 +169,10 @@ class GeodeticToLocalConverter:
             lat_deg = abs(lat_deg)
             lat_dir = 'S'
         if lon >= 0:
-            lon_dir = 'W'
+            lon_dir = 'E'
         else:
             lon_deg = abs(lon_deg)
-            lon_dir = 'E'
+            lon_dir = 'W'
         formatted_str = [f"{lon_deg}:{lon_min}:{lon_sec:.2f}{lon_dir}", f"{lat_deg}:{lat_min}:{lat_sec:.2f}{lat_dir}",f"{alt:.2f}"]
 
         return formatted_str
@@ -393,7 +393,7 @@ def dms_to_decimal(dms_str):
     """
     将度分秒字符串转换为十进制度数
     格式示例: "28:13:34.95W" 或 "00:30:31.24N"
-    规则: W为正，E为负；N为正，S为负
+    规则: W为负，E为正；N为正，S为负
     """
     # 分离方向字符
     direction = dms_str[-1]
@@ -409,9 +409,9 @@ def dms_to_decimal(dms_str):
     decimal = degrees + minutes / 60 + seconds / 3600
 
     # 根据方向确定正负
-    if direction in ['W', 'N']:
+    if direction in ['E', 'N']:
         return decimal
-    elif direction in ['E', 'S']:
+    elif direction in ['W', 'S']:
         return -decimal
     else:
         raise ValueError(f"无效的方向标识: {direction}")

@@ -139,10 +139,10 @@ def to_local(pos_dms, converter):
 #计算第1波无人机距离敌群的最远距离
 def max_distance(basepoint, enemy_center, lat_range, lon_range):
     #敌方四个角dms格式
-    ws = [lon_range[1], lat_range[1], enemy_center[2]]  # 西+南
-    wn = [lon_range[1], lat_range[0], enemy_center[2]]  # 西+北
-    es = [lon_range[0], lat_range[1], enemy_center[2]]  # 东+南
-    en = [lon_range[0], lat_range[0], enemy_center[2]]  # 东+北
+    en = [lon_range[1], lat_range[1], enemy_center[2]]  # 东北
+    es = [lon_range[1], lat_range[0], enemy_center[2]]  # 东南
+    wn = [lon_range[0], lat_range[1], enemy_center[2]]  # 西北
+    ws = [lon_range[0], lat_range[0], enemy_center[2]]  # 西南
     corners = [ws, wn, es, en]
 
     #转换base为度数
@@ -637,44 +637,40 @@ def generate_placements_with_bearing(
     distance_m,  bearing_deg,
     start_side='left', max_uavs=None, max_rows=999
 ):
-
-    """
-    输入：
-      - 敌群中心（DMS）
-      - 纬度范围、经度范围（DMS，两个端点）
-      - 敌群移动方向 bearing（度，正北为0，顺时针）
-    输出：
-      - front_point_llh: (lat, lon, alt)  单个“前沿点”
-      - front_edge_llh: [(lat,lon,alt), (lat,lon,alt)]  “前沿线段”两个端点（若退化为点，两端相同）
-    """
-    # 1) 中心 & alt
+    #先对中心进行转化
     lat_c, lon_c, alt_c = GeodeticConverter.decimal_dms_to_degrees(enemy_center_dms)
-    print('lat_c', alt_c)
+
     alt = float(alt_c)
 
-    # 2) 四角（DMS→deg）
-    lat1 = GeodeticConverter.dms_to_decimal(enemy_latrange_dms[0])
-    lat2 = GeodeticConverter.dms_to_decimal(enemy_latrange_dms[1])
-    lon1 = GeodeticConverter.dms_to_decimal(enemy_lonrange_dms[0])
-    lon2 = GeodeticConverter.dms_to_decimal(enemy_lonrange_dms[1])
+    #得到四个角的角点位置
+    en = [enemy_lonrange_dms[1], enemy_latrange_dms[1], enemy_center_dms[2]]  # 东北
+    es = [enemy_lonrange_dms[1], enemy_latrange_dms[0], enemy_center_dms[2]]  # 东南
+    wn = [enemy_lonrange_dms[0], enemy_latrange_dms[1], enemy_center_dms[2]]  # 西北
+    ws = [enemy_lonrange_dms[0], enemy_latrange_dms[0], enemy_center_dms[2]]  # 西南
+    corners = [ws, wn, en, es]
+    print("用经纬度得到的角点位置:", corners)
 
-    lat_min, lat_max = min(lat1, lat2), max(lat1, lat2)
-    lon_min, lon_max = min(lon1, lon2), max(lon1, lon2)
+    #将四个角点转度数
+    corners_degree = []
+    for corner in corners:
+        corner_lat, corner_lon, corner_alt = GeodeticConverter.decimal_dms_to_degrees(corner)
+        corners_degree.append([corner_lat, corner_lon, corner_alt])
+    print('corners_degree', corners_degree)
 
-    # 角点（顺时针）：WS, ES, EN, WN（西南，东南，东北，西北）
-    corners_llh = [
-        (lat_min, lon_min, alt),
-        (lat_min, lon_max, alt),
-        (lat_max, lon_max, alt),
-        (lat_max, lon_min, alt),
-    ]
+    distance = converter.calculate_spherical_distance(lat_c, corners_degree[2][1], alt_c,
+                                                      corners_degree[2][0], corners_degree[2][1], corners_degree[2][2])
 
-    # 3) 建 ENU 转换器（以中心为基准）
+    new_lat, new_lon, new_alt, d, = converter.calculate_destination_with_climb_angle(lat_c, lon_c, alt_c, bearing_deg,
+                                                                                     2500, 0)
 
-    # 4) 角点转 ENU
+    # 重新以中心建立局部坐标系，便于进行坐标计算
+    converter_enu = GeodeticConverter.GeodeticToLocalConverter(new_lat, new_lon, new_alt, lat_c, lon_c, alt_c)
+
+    #四个角点的度数转enu坐标系
     corners_xy = []
-    for (la, lo, al) in corners_llh:
-        x, y, z = converter.geodetic_to_local(la, lo, al)  # East=x, North=y
+
+    for (la, lo, al) in corners_degree:
+        x, y, z = converter_enu.geodetic_to_local(la, lo, al)  # East=x, North=y
         corners_xy.append((x, y))
     # 补回首点，便于边遍历
     corners_xy.append(corners_xy[0])
@@ -687,35 +683,51 @@ def generate_placements_with_bearing(
 
     # 6) 计算各角点在 f 上的投影，取 Smax
     projs = [fx*px + fy*py for (px, py) in corners_xy[:-1]]
+    print("projs", projs)
     Smax = max(projs)
 
     # 7) 求“支撑线” dot(f, x)=Smax 与四条边的交点
-    eps = 1e-9
+    eps = 1e-4
     inters = []
+    #扫描四条边
     for i in range(4):
         x0, y0 = corners_xy[i]
         x1, y1 = corners_xy[i+1]
-        dx, dy = x1 - x0, y1 - y0
-        denom = fx*dx + fy*dy  # dot(f, p1-p0)
+        dx, dy = x1 - x0, y1 - y0 #这条边的方向向量
 
-        if abs(denom) < eps:
+        edge_len = math.hypot(dx, dy)  # 线段长度 (米)
+        denom = fx * dx + fy * dy  # 与前向 f 的点积
+
+        print("iiiiiiiiii", i)
+        print("denom", denom)
+
+
+        #如果平行，就将边上的两个点加入，当作前沿点
+        if denom >= 0 and (abs(denom) <= eps * edge_len or abs(denom) <= 1e-3):
             # 与支撑线平行，可能整条边都在支撑线上（极罕见，矩形与方向正好对齐）
-            # 判断端点是否在支撑线上
-            if abs(fx*x0 + fy*y0 - Smax) < 1e-6 and abs(fx*x1 + fy*y1 - Smax) < 1e-6:
-                # 整条边是前沿，记录两个端点
-                inters.append((x0, y0))
-                inters.append((x1, y1))
+            print("x0y0, x1y1", x0, "y000000", y0, "x111111", x1, "y111111", y1)
+
+            inters.append((x0, y0))
+            inters.append((x1, y1))
+
+            print("平行")
+
             # 否则没有交点
             continue
 
-        t = (Smax - (fx*x0 + fy*y0)) / denom
-        if -eps <= t <= 1+eps:
-            # 裁剪到[0,1]
-            t = max(0.0, min(1.0, t))
-            xi, yi = x0 + t*dx, y0 + t*dy
-            # 避免重复点
-            if not inters or (abs(xi - inters[-1][0]) > 1e-6 or abs(yi - inters[-1][1]) > 1e-6):
-                inters.append((xi, yi))
+        else:
+            t = (Smax - (fx*x0 + fy*y0)) / denom
+            print("w x z d t", t)
+            if -eps <= t <= 1+eps:
+                # 裁剪到[0,1]
+                t = max(0.0, min(1.0, t))
+                xi, yi = x0 + t*dx, y0 + t*dy
+                 # 避免重复点
+                if not inters or (abs(xi - inters[-1][0]) > 1e-6 or abs(yi - inters[-1][1]) > 1e-6):
+                     inters.append((xi, yi))
+
+
+    print("inters", inters)
 
     # 8) 规范化交点数量
     if len(inters) == 0:
@@ -750,19 +762,25 @@ def generate_placements_with_bearing(
         xf, yf = xA + t*vx, yA + t*vy
 
     # 10) ENU → 经纬高
-    front_point_llh = converter.local_to_geodetic((xf, yf, 0.0))
-    p0_llh = converter.local_to_geodetic((xA, yA, 0.0))
-    p1_llh = converter.local_to_geodetic((xB, yB, 0.0))
+    front_point_llh = converter_enu.local_to_geodetic((xf, yf, 0))
+    p0_llh = converter_enu.local_to_geodetic((xA, yA, 0))
+    p1_llh = converter_enu.local_to_geodetic((xB, yB, 0))
 
-    # 替换 alt
-    front_point_llh = (front_point_llh[0], front_point_llh[1], alt)
-    p0_llh = (p0_llh[0], p0_llh[1], alt)
-    p1_llh = (p1_llh[0], p1_llh[1], alt)
+    # # 替换 alt
+    # front_point_llh = (front_point_llh[0], front_point_llh[1], alt)
+    # p0_llh = (p0_llh[0], p0_llh[1], alt)
+    # p1_llh = (p1_llh[0], p1_llh[1], alt)
 
-    front_point_dms1 = converter.local_to_geodetic_dms(front_point_llh)
-    print("front_point_dms1", front_point_dms1)
+    front_point_dms = converter_enu.local_to_geodetic_dms(front_point_llh)
+    front_point_dms[2] = alt
+    p0_dms = converter_enu.local_to_geodetic_dms(p0_llh)
+    p0_dms[2] = alt
+    p1_dms = converter_enu.local_to_geodetic_dms(p1_llh)
+    p1_dms[2] = alt
 
-    return front_point_dms1, [p0_llh, p1_llh]
+    print("front_point_dms1", front_point_dms)
+
+    return front_point_dms, p0_dms, p1_dms, corners
 
 
 
@@ -944,19 +962,31 @@ def plot_uav_trajectories(init_geo, meet_geo, turn_geo, label_prefix="UAV", colo
 def plot_positions(uav_first_geo_init, uav_second_geo_init,
                     enemy_center_init, meet_last_enemy_center, chase_enemy_center,
                     last_uav, meet_last_uav_point, after_turn_last_uav, chase_last_point,
-                    meet_first_uav_point, after_turn_first_uav):
+                    meet_first_uav_point, after_turn_first_uav, placements, uav_base):
 
     # ==================================点位转坐标=============================================
     # 初始第1波点位 uav_dms, enemy_dms,
     first_uav_init_lats, first_uav_init_lons, first_uav_init_alts = geo_to_degrees(uav_first_geo_init)
     # 初始第2波点位
     second_uav_init_lats, second_uav_inti_lons, second_uav_init_alts = geo_to_degrees(uav_second_geo_init)
+    base_lat, base_lon, base_alt = GeodeticConverter.decimal_dms_to_degrees(uav_base)
 
     # ===================================敌群中心转坐标============================================
     # 初始中心（已知）
     enemy_center_init_lat, enemy_center_init_lon, enemy_center_init_alt = GeodeticConverter.decimal_dms_to_degrees(enemy_center_init)  # 开始敌群中心
     last_enemy_center_lat, last_enemy_center_lon, last_enemy_center_alt = GeodeticConverter.decimal_dms_to_degrees(meet_last_enemy_center)  # 遇到最后一架无人机开始转弯敌群中心
     last_chase_enemy_lat, last_chase_enemy_lon, last_chase_enemy_alt = GeodeticConverter.decimal_dms_to_degrees(chase_enemy_center)  # 被最后一架无人机追上时的位置
+
+    front_lat, front_lon, front_alt = GeodeticConverter.decimal_dms_to_degrees(placements[0])
+    p0_lat, p0_lon, p0_alt = GeodeticConverter.decimal_dms_to_degrees(placements[1])
+    p1_lat, p1_lon, p1_alt = GeodeticConverter.decimal_dms_to_degrees(placements[2])
+
+    ws_lat, ws_lon, ws_alt = GeodeticConverter.decimal_dms_to_degrees(placements[3][0])
+    wn_lat, wn_lon, wn_alt = GeodeticConverter.decimal_dms_to_degrees(placements[3][1])
+    en_lat, en_lon, en_alt = GeodeticConverter.decimal_dms_to_degrees(placements[3][2])
+    es_lat, es_lon, es_alt = GeodeticConverter.decimal_dms_to_degrees(placements[3][3])
+
+
 
     # ==================================最后一架无人机============================================
     last_lat, last_lon, last_alt = GeodeticConverter.decimal_dms_to_degrees(last_uav)  # 开始
@@ -968,14 +998,26 @@ def plot_positions(uav_first_geo_init, uav_second_geo_init,
     # meet_first_uav_lat, meet_first_uav_lon, meet_first_alt = GeodeticConverter.decimal_dms_to_degrees(meet_first_uav_point)
     # after_turn_first_lat, after_turn_last_lon, after_turn_last_alt = GeodeticConverter.decimal_dms_to_degrees(after_turn_first_uav)
 
+
+
+
     all_lons, all_lats, all_alts = [], [], []
 
     points = {
-        'Last Enemy center ': [last_enemy_center_lat, last_enemy_center_lon, last_enemy_center_alt],
-        'Last Chase Enemy': [last_chase_enemy_lat, last_chase_enemy_lon, last_chase_enemy_alt],
-        'Meet Last UAV': [meet_last_lat, meet_last_lon, meet_last_alt],
-        'After Turn Last UAV': [after_turn_last_lat, after_turn_last_lon, after_turn_last_alt],
-        'Chase Last UAV': [chase_last_lat, chase_last_lon, chase_last_alt],
+        # 'Last Enemy center ': [last_enemy_center_lat, last_enemy_center_lon, last_enemy_center_alt],
+        # 'Last Chase Enemy': [last_chase_enemy_lat, last_chase_enemy_lon, last_chase_enemy_alt],
+        # 'Meet Last UAV': [meet_last_lat, meet_last_lon, meet_last_alt],
+        # 'After Turn Last UAV': [after_turn_last_lat, after_turn_last_lon, after_turn_last_alt],
+        # 'Chase Last UAV': [chase_last_lat, chase_last_lon, chase_last_alt],
+        # 'uav base': [base_lat, base_lon, base_alt],
+        'fornt point':[front_lat, front_lon, front_alt],
+        'p0':[p0_lat, p0_lon, p0_alt],
+        'p1':[p1_lat, p1_lon, p1_alt],
+        'Enemy center init':[enemy_center_init_lat, enemy_center_init_lon, enemy_center_init_alt],
+        'ws':[ws_lat, ws_lon, ws_alt],
+        'es':[es_lat, es_lon, es_alt],
+        'en':[en_lat, en_lon, en_alt],
+        'wn':[wn_lat, wn_lon, wn_alt],
     }
 
     # 提取坐标
@@ -983,8 +1025,9 @@ def plot_positions(uav_first_geo_init, uav_second_geo_init,
     ys = [pt[0] for pt in points.values()]  # 纬度
     zs = [pt[2] for pt in points.values()]  # 高度
     labels = list(points.keys())
-    colors = ['red', 'pink', 'purple', 'blue', 'cyan']
-    sizes = [5, 5, 5, 5, 5]
+    colors = ['red', 'pink', 'purple', 'blue', 'cyan', 'orange', 'yellow', 'black', 'green']
+    sizes = [5] * len(points)
+
 
     # 创建各个点
     scatter_points = []
@@ -1009,14 +1052,14 @@ def plot_positions(uav_first_geo_init, uav_second_geo_init,
         label_prefix="First UAV", color='green')
 
         # 示例轨迹线：你可以换成更复杂的路径
-    path = go.Scatter3d(
-        x=[points['After Turn Last UAV'][1], points['Chase Last UAV'][1]],
-        y=[points['After Turn Last UAV'][0], points['Chase Last UAV'][0]],
-        z=[points['After Turn Last UAV'][2], points['Chase Last UAV'][2]],
-        mode='lines',
-        line=dict(color='black', width=4),
-        name='UAV Turn Path'
-    )
+    # path = go.Scatter3d(
+    #     x=[points['After Turn Last UAV'][1], points['Chase Last UAV'][1]],
+    #     y=[points['After Turn Last UAV'][0], points['Chase Last UAV'][0]],
+    #     z=[points['After Turn Last UAV'][2], points['Chase Last UAV'][2]],
+    #     mode='lines',
+    #     line=dict(color='black', width=4),
+    #     name='UAV Turn Path'
+    # )
 
     # 提取 First UAV 轨迹坐标
     for group in [uav_first_geo_init, meet_first_uav_point, after_turn_first_uav]:
@@ -1035,7 +1078,7 @@ def plot_positions(uav_first_geo_init, uav_second_geo_init,
 
 
     # 绘制图形
-    fig = go.Figure(uav_trajectories + scatter_points + [path])
+    fig = go.Figure(scatter_points)   #+ [path]
 
     # 设置显示参数
     fig.update_layout(
@@ -1044,8 +1087,8 @@ def plot_positions(uav_first_geo_init, uav_second_geo_init,
             yaxis_title='Latitude (°N)',
             zaxis_title='Altitude (m)',
 
-            xaxis=dict(range=[min(all_lons) - 0.1, max(all_lons) + 0.1]),
-            yaxis=dict(range=[min(all_lats) - 0.1, max(all_lats) + 0.1]),
+            xaxis=dict(range=[min(xs) - 0.1, max(xs) + 0.1]),
+            yaxis=dict(range=[min(ys) - 0.1, max(ys) + 0.1]),
             zaxis=dict(range=[min(all_alts) - 1000, max(all_alts) + 1000]),
         ),
         margin=dict(l=0, r=0, t=50, b=0),
@@ -1133,11 +1176,11 @@ if __name__ == "__main__":
     placements = generate_placements_with_bearing(
         data['enemy_approx'], data['enemy_latrange'], data['enemy_lonrange'],
         distance_m=400,
-        bearing_deg=270.0,  # 敌方从东向西
+        bearing_deg=270,  # 敌方从东向西
         start_side='left',  # 先左（相对 forward 的左侧=南/北取决于bearing）
         max_uavs=30, max_rows=10
     )
-    print("试试就逝世:", placements)
+
 
     for p in placements[:8]:
         print("先试试",p)
@@ -1156,7 +1199,7 @@ if __name__ == "__main__":
     plot_positions(first_sorted_dms, data['second_uavs'],
                    data['enemy_approx'], meet_last_enemy_dms, chase_enemy_dms,
                    last_point, last_begin_turn_dms, after_turning_last_uav_dms, chase_uav_dms,
-                   meet_first_uav_dms, after_turn_first_uav_dms)
+                   meet_first_uav_dms, after_turn_first_uav_dms, placements, data['basepoint'])
 
 
 
