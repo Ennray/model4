@@ -685,14 +685,14 @@ def generate_placements_with_bearing(
     wn = [enemy_lonrange_dms[0], enemy_latrange_dms[1], enemy_center_dms[2]]  # 西北
     ws = [enemy_lonrange_dms[0], enemy_latrange_dms[0], enemy_center_dms[2]]  # 西南
     corners = [ws, wn, en, es]
-    print("用经纬度得到的角点位置:", corners)
+
 
     #将四个角点转度数
     corners_degree = []
     for corner in corners:
         corner_lat, corner_lon, corner_alt = GeodeticConverter.decimal_dms_to_degrees(corner)
         corners_degree.append([corner_lat, corner_lon, corner_alt])
-    print('corners_degree', corners_degree)
+
 
     distance = converter.calculate_spherical_distance(lat_c, corners_degree[2][1], alt_c,
                                                       corners_degree[2][0], corners_degree[2][1], corners_degree[2][2])
@@ -711,21 +711,39 @@ def generate_placements_with_bearing(
         corners_xy.append((x, y))
     # 补回首点，便于边遍历
     corners_xy.append(corners_xy[0])
-    print("corners_xy", corners_xy)
+    print("角点的直角坐标",corners_xy)
+
 
     # 5) 前向单位向量 f（bearing: 北=0，顺时针）
-    theta = math.radians(bearing_deg)
+    theta = math.radians(45)
+    # print("弧度制", bearing_deg)
     fx, fy = math.sin(theta), math.cos(theta)  # ENU 中朝向
+    print("<UNK>", fx, fy)
     f = (fx, fy)
+    print("前向单位向量f", f)
 
     # 6) 计算各角点在 f 上的投影，取 Smax
     projs = [fx*px + fy*py for (px, py) in corners_xy[:-1]]
     print("projs", projs)
     Smax = max(projs)
+    print("Smax", Smax)
+
 
     # 7) 求“支撑线” dot(f, x)=Smax 与四条边的交点
-    eps = 1e-4
+
+    xs = [x for (x, _) in corners_xy[:-1]]
+    ys = [y for (_, y) in corners_xy[:-1]]
+    box_size = max(max(xs) - min(xs), max(ys) - min(ys))
+    tol_front = 1e-6 * box_size + 1e-3  # 1ppm + 1mm
+    print("box_size", box_size)
+    print("box_size_front", tol_front)
+
+    tol_rel = 1e-4  # 相对阈值：与边长成比例
+    tol_abs = 1e-3  # 绝对兜底（米）
+    t_eps = 1e-9  # t 的容差
     inters = []
+    flag = 0
+    tag = 0
     #扫描四条边
     for i in range(4):
         x0, y0 = corners_xy[i]
@@ -734,34 +752,57 @@ def generate_placements_with_bearing(
 
         edge_len = math.hypot(dx, dy)  # 线段长度 (米)
         denom = fx * dx + fy * dy  # 与前向 f 的点积
+        s0 = fx * x0 + fy * y0
+        s1 = fx * dx + fy * dy
+
+        on0 = abs(s0 - Smax) <= tol_front
+        on1 = abs(s1 - Smax) <= tol_front
 
         print("iiiiiiiiii", i)
         print("denom", denom)
 
+        # 是否平行（与支撑线平行 <=> 与 f 垂直）
+        is_parallel = (abs(denom) <= tol_rel * edge_len) or (abs(denom) <= tol_abs)
+        print("is_parallel", is_parallel)
 
-        #如果平行，就将边上的两个点加入，当作前沿点
-        if denom >= 0 and (abs(denom) <= eps * edge_len or abs(denom) <= 1e-3):
-            # 与支撑线平行，可能整条边都在支撑线上（极罕见，矩形与方向正好对齐）
-            print("x0y0, x1y1", x0, "y000000", y0, "x111111", x1, "y111111", y1)
-
-            inters.append((x0, y0))
-            inters.append((x1, y1))
-
-            print("平行")
-
-            # 否则没有交点
+        if is_parallel:
+            # 判是否共线（端点都在支撑线上）
+            proj0 = fx * x0 + fy * y0
+            proj1 = fx * x1 + fy * y1
+            if max(proj0, proj1) == Smax:
+                inters.append((x0, y0))
+                inters.append((x1, y1))
+            print("共线时的inters", inters)
+            flag = 1
+            tag = 1
+            # 不共线则没有交点，continue
             continue
 
-        else:
-            t = (Smax - (fx*x0 + fy*y0)) / denom
-            print("w x z d t", t)
-            if -eps <= t <= 1+eps:
-                # 裁剪到[0,1]
-                t = max(0.0, min(1.0, t))
-                xi, yi = x0 + t*dx, y0 + t*dy
-                 # 避免重复点
-                if not inters or (abs(xi - inters[-1][0]) > 1e-6 or abs(yi - inters[-1][1]) > 1e-6):
-                     inters.append((xi, yi))
+        if flag == 0 and (on0 or on1):
+            inters.append((x0, y0))
+            inters.append((x1, y1))
+            tag = 1
+            print("误差较大时的inters", inters)
+
+    for i in range(4):
+        x0, y0 = corners_xy[i]
+        x1, y1 = corners_xy[i + 1]
+        dx, dy = x1 - x0, y1 - y0  # 这条边的方向向量
+
+        edge_len = math.hypot(dx, dy)  # 线段长度 (米)
+        denom = fx * dx + fy * dy  # 与前向 f 的点积
+
+        # 非平行：唯一交点，解参数 t
+        t = (Smax - (fx * x0 + fy * y0)) / denom
+        if tag == 0 and (-t_eps <= t <= 1 + t_eps):
+            # 裁剪回线段范围
+            t = max(0.0, min(1.0, t))
+            xi, yi = x0 + t * dx, y0 + t * dy
+
+            # 去重（避免穿顶点时重复）
+            if not any(abs(xi - xj) < 1e-6 and abs(yi - yj) < 1e-6 for (xj, yj) in inters):
+                inters.append((xi, yi))
+                print("没共线时的inters", inters)
 
 
     print("inters", inters)
@@ -1404,47 +1445,47 @@ if __name__ == "__main__":
 
     #===================================相对位置===============================================
 
-    # 第3波次无人机（加速、匀速、减速、转弯、追击上的结束时间） 现在少一个
-    uav3_state_end_times = [3, 7, 9, 11, 13, 15]  # 第3波次无人机的加速、匀速、减速、转弯的结束时间
-    # 第1/2波次无人机（匀速、减速、转弯、追击上的结束时间） 现在少一个
-    uav1_state_end_times = [5, 10, 15, 16, 17, 18]  # 第1波次无人机的匀速、减速、转弯的结束时间
-    uav2_state_end_times = [6, 12, 17, 18, 19, 20]  # 第二波次无人机的匀速、减速、转弯的结束时间
-    enemy_chase_center = [
-            "120:38:15.75E",
-             "29:46:10.10N",
-            "3976.86"
-        ]#后面商量怎么改
-    first_center_pos = [
-            "120:38:15.75E",
-             "29:46:10.10N",
-            "3976.86"
-        ] #已知
-    second_center_pos = [
-            "120:38:15.75E",
-             "29:46:10.10N",
-            "3976.86"
-        ] #已知
-    third_center_pos = [
-        "120:38:14.82E",
-        "29:47:22.84N",
-         "5005.0"
-        ] #已知
-    # 调用函数
-    #######################测试相对位置函数#########################
-    speed_up_over_dms = third_uav_first_speed_up_timed_position(third_center_pos, data['enemy_approx'],
-                                                                data['minimum_speed'], data['maximum_speed'],
-                                                                acceleration)
-    print(f"加速之后的位置:", speed_up_over_dms,first_center_pos, third_center_pos,data['basepoint'])
-    timed_pos = uav_timed_position(data['basepoint'], data['minimum_speed'], data['maximum_speed'], uav_deceleration_speed, data['enemy_approx'],
-                       enemy_chase_center, acceleration, uav3_state_end_times)
-    print(f"timed_pos定时位置:", timed_pos)#维度为负数的问题需不需要解决？
-    output_enemy_timed_position = enemy_timed_position(data['enemy_approx'], data['speed'], data['basepoint'], uav2_state_end_times)
-    print(f"enemy_timed_position定时位置:", output_enemy_timed_position)
-    relative_position = drone_state(uav1_state_end_times, uav2_state_end_times, uav3_state_end_times, data['minimum_speed'], data['maximum_speed'], data['speed'],
-                data['basepoint'], data['enemy_approx'],
-                enemy_chase_center, first_center_pos, second_center_pos, third_center_pos,
-                chase_time_val=None) # max_distances, detect_distances, uavpoint,
-    print(f"relative_position相对位置:", relative_position)
+    # # 第3波次无人机（加速、匀速、减速、转弯、追击上的结束时间） 现在少一个
+    # uav3_state_end_times = [3, 7, 9, 11, 13, 15]  # 第3波次无人机的加速、匀速、减速、转弯的结束时间
+    # # 第1/2波次无人机（匀速、减速、转弯、追击上的结束时间） 现在少一个
+    # uav1_state_end_times = [5, 10, 15, 16, 17, 18]  # 第1波次无人机的匀速、减速、转弯的结束时间
+    # uav2_state_end_times = [6, 12, 17, 18, 19, 20]  # 第二波次无人机的匀速、减速、转弯的结束时间
+    # enemy_chase_center = [
+    #         "120:38:15.75E",
+    #          "29:46:10.10N",
+    #         "3976.86"
+    #     ]#后面商量怎么改
+    # first_center_pos = [
+    #         "120:38:15.75E",
+    #          "29:46:10.10N",
+    #         "3976.86"
+    #     ] #已知
+    # second_center_pos = [
+    #         "120:38:15.75E",
+    #          "29:46:10.10N",
+    #         "3976.86"
+    #     ] #已知
+    # third_center_pos = [
+    #     "120:38:14.82E",
+    #     "29:47:22.84N",
+    #      "5005.0"
+    #     ] #已知
+    # # 调用函数
+    # #######################测试相对位置函数#########################
+    # speed_up_over_dms = third_uav_first_speed_up_timed_position(third_center_pos, data['enemy_approx'],
+    #                                                             data['minimum_speed'], data['maximum_speed'],
+    #                                                             acceleration)
+    # print(f"加速之后的位置:", speed_up_over_dms,first_center_pos, third_center_pos,data['basepoint'])
+    # timed_pos = uav_timed_position(data['basepoint'], data['minimum_speed'], data['maximum_speed'], uav_deceleration_speed, data['enemy_approx'],
+    #                    enemy_chase_center, acceleration, uav3_state_end_times)
+    # print(f"timed_pos定时位置:", timed_pos)#维度为负数的问题需不需要解决？
+    # output_enemy_timed_position = enemy_timed_position(data['enemy_approx'], data['speed'], data['basepoint'], uav2_state_end_times)
+    # print(f"enemy_timed_position定时位置:", output_enemy_timed_position)
+    # relative_position = drone_state(uav1_state_end_times, uav2_state_end_times, uav3_state_end_times, data['minimum_speed'], data['maximum_speed'], data['speed'],
+    #             data['basepoint'], data['enemy_approx'],
+    #             enemy_chase_center, first_center_pos, second_center_pos, third_center_pos,
+    #             chase_time_val=None) # max_distances, detect_distances, uavpoint,
+    # print(f"relative_position相对位置:", relative_position)
     ####################上面在测试#############################
     # state_result = drone_state(uav1_state_end_times, uav2_state_end_times, uav3_state_end_times, data['minimum_speed'], data['maximum_speed'], data['speed'], data['basepoint'], data['enemy_approx'],
     #             enemy_chase_center, first_center_pos, second_center_pos, third_center_pos, chase_time_val=None)
