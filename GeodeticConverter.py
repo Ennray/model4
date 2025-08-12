@@ -46,21 +46,21 @@ class GeodeticToLocalConverter:
         delta = self.B_ecef - self.A_ecef
         enu = self._ecef_to_enu(delta)
 
-        # y轴方向(AB方向)
-        y_axis = enu / np.linalg.norm(enu)
+        x_axis = enu / np.linalg.norm(enu)
 
-        # z轴(垂直于y轴和天向)
-        up = np.array([0, 0, 1])  # ENU的天向
-        z_axis = np.cross(y_axis, up)
-        if np.linalg.norm(z_axis) < 1e-10:
-            # 处理AB与天向平行的情况
-            z_axis = np.array([1, 0, 0])
-        else:
-            z_axis = z_axis / np.linalg.norm(z_axis)
+        # z 轴：Up（竖直）
+        z_axis = np.array([0, 0, 1], dtype=float)
 
-        # x轴(y × z)
+        # 退化处理：若 AB 近乎竖直，选一个水平 x 轴兜底
+        if abs(np.dot(x_axis, z_axis)) > 1 - 1e-10:
+            x_axis = np.array([1, 0, 0], dtype=float)
+
+        # y 轴：z × x，保证右手系且 y 在水平面
+        y_axis = np.cross(z_axis, x_axis);
+        y_axis /= np.linalg.norm(y_axis)
+
+        # 重新正交化 x（可选，抹去极小数值误差）
         x_axis = np.cross(y_axis, z_axis)
-        x_axis = x_axis / np.linalg.norm(x_axis)
 
         # 旋转矩阵(ENU -> 局部坐标系)
         return np.vstack([x_axis, y_axis, z_axis]).T

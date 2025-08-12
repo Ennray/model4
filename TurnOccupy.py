@@ -686,6 +686,9 @@ def generate_placements_with_bearing(
     ws = [enemy_lonrange_dms[0], enemy_latrange_dms[0], enemy_center_dms[2]]  # 西南
     corners = [ws, wn, en, es]
 
+    ws_lat, ws_lon, ws_alt = GeodeticConverter.decimal_dms_to_degrees(ws)
+    es_lat, es_lon, es_alt = GeodeticConverter.decimal_dms_to_degrees(es)
+
 
     #将四个角点转度数
     corners_degree = []
@@ -700,8 +703,8 @@ def generate_placements_with_bearing(
     new_lat, new_lon, new_alt, d, = converter.calculate_destination_with_climb_angle(lat_c, lon_c, alt_c, bearing_deg,
                                                                                      2500, 0)
 
-    # 重新以中心建立局部坐标系，便于进行坐标计算
-    converter_enu = GeodeticConverter.GeodeticToLocalConverter(new_lat, new_lon, new_alt, lat_c, lon_c, alt_c)
+    #重新以中心建立局部坐标系，便于进行坐标计算
+    converter_enu = GeodeticConverter.GeodeticToLocalConverter(ws_lat, ws_lon, ws_alt, es_lat, es_lon, es_alt)
 
     #四个角点的度数转enu坐标系
     corners_xy = []
@@ -709,87 +712,78 @@ def generate_placements_with_bearing(
     for (la, lo, al) in corners_degree:
         x, y, z = converter_enu.geodetic_to_local(la, lo, al)  # East=x, North=y
         corners_xy.append((x, y))
-    # 补回首点，便于边遍历
+
+    #补回首点，便于边遍历
     corners_xy.append(corners_xy[0])
     print("角点的直角坐标",corners_xy)
 
-
-    # 5) 前向单位向量 f（bearing: 北=0，顺时针）
-    theta = math.radians(45)
-    # print("弧度制", bearing_deg)
+    #前向单位向量 f（bearing: 北=0，顺时针）
+    theta = math.radians(270)
     fx, fy = math.sin(theta), math.cos(theta)  # ENU 中朝向
-    print("<UNK>", fx, fy)
     f = (fx, fy)
-    print("前向单位向量f", f)
 
-    # 6) 计算各角点在 f 上的投影，取 Smax
-    projs = [fx*px + fy*py for (px, py) in corners_xy[:-1]]
-    print("projs", projs)
+
+    #计算各角点在f方向上的投影
+    projs = [fx*px + fy*py for (px, py) in corners_xy[:-1]]  #就是在方向上的投影距离，原点-方向
     Smax = max(projs)
-    print("Smax", Smax)
 
-
-    # 7) 求“支撑线” dot(f, x)=Smax 与四条边的交点
-
-    xs = [x for (x, _) in corners_xy[:-1]]
-    ys = [y for (_, y) in corners_xy[:-1]]
-    box_size = max(max(xs) - min(xs), max(ys) - min(ys))
-    tol_front = 1e-6 * box_size + 1e-3  # 1ppm + 1mm
-    print("box_size", box_size)
-    print("box_size_front", tol_front)
-
+    #求“支撑线” dot(f, x)=Smax 与四条边的交点
     tol_rel = 1e-4  # 相对阈值：与边长成比例
     tol_abs = 1e-3  # 绝对兜底（米）
     t_eps = 1e-9  # t 的容差
     inters = []
     flag = 0
     tag = 0
+    alpha = 0
+    beta = 0
+
     #扫描四条边
     for i in range(4):
         x0, y0 = corners_xy[i]
         x1, y1 = corners_xy[i+1]
         dx, dy = x1 - x0, y1 - y0 #这条边的方向向量
 
+        #根据fx，fy的情况判断应该增加的误差值，如果是fy接近0，说明南北朝向的边可能存在x轴上的误差，如果fx接近0，说明东西朝向的边可能存在y轴上的误差
+        if fy < tol_rel and (i == 0 or i == 2):
+            alpha = abs(dx)
+        elif fx < tol_rel and (i == 1 or i == 3):
+            beta = abs(dy)
+
+        print("前向单位向量f", f)
+        print("第", i ,"次时x边长多少:",dx, "y边长多少",dy)
+
         edge_len = math.hypot(dx, dy)  # 线段长度 (米)
         denom = fx * dx + fy * dy  # 与前向 f 的点积
         s0 = fx * x0 + fy * y0
         s1 = fx * dx + fy * dy
 
-        on0 = abs(s0 - Smax) <= tol_front
-        on1 = abs(s1 - Smax) <= tol_front
 
-        print("iiiiiiiiii", i)
         print("denom", denom)
 
         # 是否平行（与支撑线平行 <=> 与 f 垂直）
-        is_parallel = (abs(denom) <= tol_rel * edge_len) or (abs(denom) <= tol_abs)
-        print("is_parallel", is_parallel)
+        is_parallel = abs(denom) <= tol_abs + abs(alpha * fx) + abs(beta * fy)
+        print("判断", is_parallel, "误差值", tol_abs + abs(alpha * fx) + abs(beta * fy))
 
-        if is_parallel:
+
+        if is_parallel :
             # 判是否共线（端点都在支撑线上）
             proj0 = fx * x0 + fy * y0
             proj1 = fx * x1 + fy * y1
             if max(proj0, proj1) == Smax:
-                inters.append((x0, y0))
-                inters.append((x1, y1))
+                inters.append((x0, y0, 0))
+                inters.append((x1, y1, 0))
             print("共线时的inters", inters)
-            flag = 1
             tag = 1
             # 不共线则没有交点，continue
             continue
 
-        if flag == 0 and (on0 or on1):
-            inters.append((x0, y0))
-            inters.append((x1, y1))
-            tag = 1
-            print("误差较大时的inters", inters)
+
 
     for i in range(4):
         x0, y0 = corners_xy[i]
         x1, y1 = corners_xy[i + 1]
         dx, dy = x1 - x0, y1 - y0  # 这条边的方向向量
 
-        edge_len = math.hypot(dx, dy)  # 线段长度 (米)
         denom = fx * dx + fy * dy  # 与前向 f 的点积
 
         # 非平行：唯一交点，解参数 t
@@ -801,64 +795,23 @@ def generate_placements_with_bearing(
 
             # 去重（避免穿顶点时重复）
             if not any(abs(xi - xj) < 1e-6 and abs(yi - yj) < 1e-6 for (xj, yj) in inters):
-                inters.append((xi, yi))
+                inters.append((xi, yi, 0))
                 print("没共线时的inters", inters)
 
-
     print("inters", inters)
+    inters = [(float(x), float(y), float(z)) for x, y, z in inters]
 
-    # 8) 规范化交点数量
-    if len(inters) == 0:
-        # 理论上不会发生；回退到投影最大的顶点
-        idx = projs.index(Smax)
-        inters = [corners_xy[idx], corners_xy[idx]]
-    elif len(inters) == 1:
-        # 退化为前沿顶点
-        inters = [inters[0], inters[0]]
-    else:
-        # 最多留下两端点（若因共线加入了4点，取端点投影在法向的最远两点）
-        if len(inters) > 2:
-            # 用与 f 垂直的方向区分端点
-            nx, ny = -fy, fx
-            inters.sort(key=lambda p: nx*p[0] + ny*p[1])
-            inters = [inters[0], inters[-1]]
+    front_dms = []
+    for inter in inters:
 
-    # 9) 取“前沿点” = 把原点沿 f 推到 Smax 的点，并裁剪到线段
-    # 原点在 ENU 是 (0,0)
-    x_star, y_star = fx*Smax, fy*Smax
+        inter_dms = converter_enu.local_to_geodetic_dms(inter)
+        # inter_dms[2] = alt
+        front_dms.append(inter_dms)
 
-    # 将 x_star 在线段 inters[0]-inters[1] 上投影并裁剪
-    (xA, yA), (xB, yB) = inters[0], inters[1]
-    vx, vy = xB - xA, yB - yA
-    seg_len2 = vx*vx + vy*vy
-    if seg_len2 < 1e-12:
-        # 线段退化为点
-        xf, yf = xA, yA
-    else:
-        t = ((x_star - xA)*vx + (y_star - yA)*vy) / seg_len2
-        t = max(0.0, min(1.0, t))
-        xf, yf = xA + t*vx, yA + t*vy
+    print("front_dms", front_dms)
 
-    # 10) ENU → 经纬高
-    front_point_llh = converter_enu.local_to_geodetic((xf, yf, 0))
-    p0_llh = converter_enu.local_to_geodetic((xA, yA, 0))
-    p1_llh = converter_enu.local_to_geodetic((xB, yB, 0))
 
-    # # 替换 alt
-    # front_point_llh = (front_point_llh[0], front_point_llh[1], alt)
-    # p0_llh = (p0_llh[0], p0_llh[1], alt)
-    # p1_llh = (p1_llh[0], p1_llh[1], alt)
-
-    front_point_dms = converter_enu.local_to_geodetic_dms(front_point_llh)
-    front_point_dms[2] = alt
-    p0_dms = converter_enu.local_to_geodetic_dms(p0_llh)
-    p0_dms[2] = alt
-    p1_dms = converter_enu.local_to_geodetic_dms(p1_llh)
-    p1_dms[2] = alt
-
-    print("front_point_dms1", front_point_dms)
-
-    return front_point_dms, p0_dms, p1_dms, corners
+    return front_dms, corners
 
 
 # 第三批次先进行一段加速之后的位置求取，加速结束后再用first_second_timed_position计算位置
@@ -1207,14 +1160,14 @@ def plot_positions(uav_first_geo_init, uav_second_geo_init,
     last_enemy_center_lat, last_enemy_center_lon, last_enemy_center_alt = GeodeticConverter.decimal_dms_to_degrees(meet_last_enemy_center)  # 遇到最后一架无人机开始转弯敌群中心
     last_chase_enemy_lat, last_chase_enemy_lon, last_chase_enemy_alt = GeodeticConverter.decimal_dms_to_degrees(chase_enemy_center)  # 被最后一架无人机追上时的位置
 
-    front_lat, front_lon, front_alt = GeodeticConverter.decimal_dms_to_degrees(placements[0])
-    p0_lat, p0_lon, p0_alt = GeodeticConverter.decimal_dms_to_degrees(placements[1])
-    p1_lat, p1_lon, p1_alt = GeodeticConverter.decimal_dms_to_degrees(placements[2])
+    # front_lat, front_lon, front_alt = GeodeticConverter.decimal_dms_to_degrees(placements[0])
+    p0_lat, p0_lon, p0_alt = GeodeticConverter.decimal_dms_to_degrees(placements[0][0])
+    p1_lat, p1_lon, p1_alt = GeodeticConverter.decimal_dms_to_degrees(placements[0][1])
 
-    ws_lat, ws_lon, ws_alt = GeodeticConverter.decimal_dms_to_degrees(placements[3][0])
-    wn_lat, wn_lon, wn_alt = GeodeticConverter.decimal_dms_to_degrees(placements[3][1])
-    en_lat, en_lon, en_alt = GeodeticConverter.decimal_dms_to_degrees(placements[3][2])
-    es_lat, es_lon, es_alt = GeodeticConverter.decimal_dms_to_degrees(placements[3][3])
+    ws_lat, ws_lon, ws_alt = GeodeticConverter.decimal_dms_to_degrees(placements[1][0])
+    wn_lat, wn_lon, wn_alt = GeodeticConverter.decimal_dms_to_degrees(placements[1][1])
+    en_lat, en_lon, en_alt = GeodeticConverter.decimal_dms_to_degrees(placements[1][2])
+    es_lat, es_lon, es_alt = GeodeticConverter.decimal_dms_to_degrees(placements[1][3])
 
 
 
@@ -1240,7 +1193,7 @@ def plot_positions(uav_first_geo_init, uav_second_geo_init,
         # 'After Turn Last UAV': [after_turn_last_lat, after_turn_last_lon, after_turn_last_alt],
         # 'Chase Last UAV': [chase_last_lat, chase_last_lon, chase_last_alt],
         # 'uav base': [base_lat, base_lon, base_alt],
-        'fornt point':[front_lat, front_lon, front_alt],
+        # 'fornt point':[front_lat, front_lon, front_alt],
         'p0':[p0_lat, p0_lon, p0_alt],
         'p1':[p1_lat, p1_lon, p1_alt],
         'Enemy center init':[enemy_center_init_lat, enemy_center_init_lon, enemy_center_init_alt],
@@ -1412,8 +1365,8 @@ if __name__ == "__main__":
     )
 
 
-    for p in placements[:8]:
-        print("先试试",p)
+
+    print("先试试",placements)
 
 
 
