@@ -1445,7 +1445,7 @@ if __name__ == "__main__":
                 enemy_chase_center, first_center_pos, second_center_pos, third_center_pos,
                 chase_time_val=None) # max_distances, detect_distances, uavpoint,
     print(f"relative_position相对位置:", relative_position)
-    ####################上面在测试#############################
+    ###################################上面在测试#############################
     # state_result = drone_state(uav1_state_end_times, uav2_state_end_times, uav3_state_end_times, data['minimum_speed'], data['maximum_speed'], data['speed'], data['basepoint'], data['enemy_approx'],
     #             enemy_chase_center, first_center_pos, second_center_pos, third_center_pos, chase_time_val=None)
     # # 输出结果
