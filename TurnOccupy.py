@@ -669,9 +669,13 @@ def line_rect_intersection(rect_xy, u, c):
         return [uniq[idx_min], uniq[idx_max]]
     return uniq  # 可能是0,1或2个点
 
+def dot_projection(p, vx, vy):
+    return p[0] * vx + p[1] * vy
+
+
 def generate_placements_with_bearing(
     enemy_center_dms, enemy_latrange_dms, enemy_lonrange_dms,
-    distance_m,  bearing_deg,
+    distance_m,  bearing_deg, exclusion_radius_m, preplaced_dms,
     start_side='left', max_uavs=None, max_rows=999
 ):
     #先对中心进行转化
@@ -718,7 +722,19 @@ def generate_placements_with_bearing(
     print("角点的直角坐标",corners_xy)
 
     #前向单位向量 f（bearing: 北=0，顺时针）
-    theta = math.radians(270)
+
+    bearing_front = 0
+    if 315 < bearing_deg <= 360 or 0 < bearing_deg <=45 :
+        bearing_front = 0
+    elif 45 < bearing_deg <= 135 :
+        bearing_front = 90
+    elif 135 < bearing_deg <= 225 :
+        bearing_front = 180
+    elif 225 < bearing_deg <= 315 :
+        bearing_front = 270
+
+
+    theta = math.radians(bearing_front)
     fx, fy = math.sin(theta), math.cos(theta)  # ENU 中朝向
     f = (fx, fy)
 
@@ -730,10 +746,7 @@ def generate_placements_with_bearing(
     #求“支撑线” dot(f, x)=Smax 与四条边的交点
     tol_rel = 1e-4  # 相对阈值：与边长成比例
     tol_abs = 1e-3  # 绝对兜底（米）
-    t_eps = 1e-9  # t 的容差
     inters = []
-    flag = 0
-    tag = 0
     alpha = 0
     beta = 0
 
@@ -751,12 +764,7 @@ def generate_placements_with_bearing(
 
         print("前向单位向量f", f)
         print("第", i ,"次时x边长多少:",dx, "y边长多少",dy)
-
-        edge_len = math.hypot(dx, dy)  # 线段长度 (米)
         denom = fx * dx + fy * dy  # 与前向 f 的点积
-        s0 = fx * x0 + fy * y0
-        s1 = fx * dx + fy * dy
-
 
         print("denom", denom)
 
@@ -773,30 +781,8 @@ def generate_placements_with_bearing(
                 inters.append((x0, y0, 0))
                 inters.append((x1, y1, 0))
             print("共线时的inters", inters)
-            tag = 1
             # 不共线则没有交点，continue
             continue
-
-
-
-    for i in range(4):
-        x0, y0 = corners_xy[i]
-        x1, y1 = corners_xy[i + 1]
-        dx, dy = x1 - x0, y1 - y0  # 这条边的方向向量
-
-        denom = fx * dx + fy * dy  # 与前向 f 的点积
-
-        # 非平行：唯一交点，解参数 t
-        t = (Smax - (fx * x0 + fy * y0)) / denom
-        if tag == 0 and (-t_eps <= t <= 1 + t_eps):
-            # 裁剪回线段范围
-            t = max(0.0, min(1.0, t))
-            xi, yi = x0 + t * dx, y0 + t * dy
-
-            # 去重（避免穿顶点时重复）
-            if not any(abs(xi - xj) < 1e-6 and abs(yi - yj) < 1e-6 for (xj, yj) in inters):
-                inters.append((xi, yi, 0))
-                print("没共线时的inters", inters)
 
     print("inters", inters)
     inters = [(float(x), float(y), float(z)) for x, y, z in inters]
@@ -811,7 +797,131 @@ def generate_placements_with_bearing(
     print("front_dms", front_dms)
 
 
+    # ---------- 左右排序（以“左向量”l 对端点投影从小到大为 Left→Right） ----------
+    lx, ly = -fy, fx  # 左方向（面向 f 时左手边）
+    pL_raw, pR_raw = inters[0], inters[1]
+
+
+
+
+    if dot_projection(pL_raw, lx, ly) < dot_projection(pR_raw, lx, ly):
+        pL_raw, pR_raw = pR_raw, pL_raw  # 交换，确保 pL_raw 是左端
+
+    # 行方向单位向量 u（沿着前沿线段，Left→Right）
+    ux, uy = pR_raw[0] - pL_raw[0], pR_raw[1] - pL_raw[1]
+    seg_len = math.hypot(ux, uy)
+    if seg_len < 1e-6:
+        return [], corners
+    ux, uy = ux / seg_len, uy / seg_len
+
+    # 设默认冲突半径
+    if exclusion_radius_m is None:
+        exclusion_radius_m = 0.5 * float(distance_m)
+
+    # 把预放置 DMS 转到 ENU，便于冲突检测
+    preplaced_local = []
+    if preplaced_dms:
+        for d in preplaced_dms:
+            la, lo, al = GeodeticConverter.decimal_dms_to_degrees(d)
+            x, y, z = converter_enu.geodetic_to_local(la, lo, al)
+            preplaced_local.append((x, y, z))
+
+
     return front_dms, corners
+
+
+def too_close(pt, placed_local, preplaced_local, exclusion_radius_m):
+    """与已放或预放过近则拒绝放置"""
+    px, py = pt[0], pt[1]
+    # 已放
+    for qx, qy, _ in placed_local:
+        if math.hypot(px - qx, py - qy) < exclusion_radius_m:
+            return True
+    # 预放
+    for qx, qy, _ in preplaced_local:
+        if math.hypot(px - qx, py - qy) < exclusion_radius_m:
+            return True
+    return False
+
+
+def occupation_strategy(start_side, f, distance_m, uav_num, seg_len, max_rows, pL_raw, pR_raw, ux, uy):
+    fx, fy = f[0], f[1]
+    # 放置顺序控制：start_side = 'left' / 'right'
+    left_first = (str(start_side).lower() == 'left')
+
+    # 逐行推进
+    placements_dms = []
+    placed_local = []
+    f_back = (-fx, -fy)  # 向后移动一行
+
+    u_margin = float(distance_m)  # 与边界的“退让”距离
+    step_along = float(distance_m)  # 同一行内左右向内推进步长
+    row_offset = float(distance_m)  # 行间距（向后）
+
+    uavs_budget = uav_num if (uav_num is not None) else 10 ** 9
+
+    for r in range(int(max_rows)):
+        if uavs_budget <= 0:
+            break
+
+        # 本行的左右端点（整体向后平移 r*row_offset）
+        row_shift_x = f_back[0] * (r * row_offset)
+        row_shift_y = f_back[1] * (r * row_offset)
+        row_L = (pL_raw[0] + row_shift_x, pL_raw[1] + row_shift_y, 0.0)
+        row_R = (pR_raw[0] + row_shift_x, pR_raw[1] + row_shift_y, 0.0)
+
+        # 有效可用长度
+        usable_len = seg_len - u_margin
+        if usable_len < step_along - 1e-6:
+            break  # 这一行已经放不下任意一点
+
+        # 交替放置：k=0,1,2,... 左右向内推进
+        k_max = int((seg_len - u_margin) // (2.0 * step_along))
+        if k_max < 0 :
+            break
+
+        for k in range(k_max + 1):
+            # 左侧候选
+            Lx = row_L[0] + ux * (0.5 * u_margin + k * step_along)
+            Ly = row_L[1] + uy * (0.5 * u_margin + k * step_along)
+
+            # 右侧候选
+            Rx = row_R[0] - ux * (0.5 * u_margin + k * step_along)
+            Ry = row_R[1] - uy * (0.5 * u_margin + k * step_along)
+
+            # 已经相遇或交叉，结束本行
+            if dot_projection((Rx - Lx, Ry - Ly, 0.0), ux, uy) < 0:
+                break
+
+            pair = [("left", (Lx, Ly, 0.0)), ("right", (Rx, Ry, 0.0))]
+            if not left_first:
+                pair.reverse()
+
+                # 依次尝试放置本对（左右）
+                for side, cand in pair:
+                    if uavs_budget <= 0:
+                        break  # 结束本对，随后结束本行与所有行
+                    if not too_close(cand):
+                        dms = enu_to_dms_func(cand)
+                        dms[2] = enemy_center_dms[2]  # 固定高度；如需要每行变化，这里改
+                        placements_dms.append(dms)
+                        placed_local.append(cand)
+                        uavs_budget -= 1
+
+                if uavs_budget <= 0:
+                    break  # 本行提前结束
+
+            if uavs_budget <= 0:
+                break
+
+
+
+
+
+
+
+
+
 
 
 # 第三批次先进行一段加速之后的位置求取，加速结束后再用first_second_timed_position计算位置
