@@ -623,62 +623,20 @@ def get_uav_state(time, state_end_times, uav_number):
         else:
             return "追击结束，跟随敌群"
 
-# 进行占位计算
 
-# —— 小工具：方位角 → ENU 单位向量（x=东, y=北）——
-def bearing_to_unit_enu(bearing_deg):
-    rad = math.radians(bearing_deg % 360.0)
-    # ENU：x=East=sin(bearing), y=North=cos(bearing)
-    return np.array([math.sin(rad), math.cos(rad)], dtype=float)
+#计算坐标点投影值
+def dot_projection(p, vx, vy):
+    return p[0] * vx + p[1] * vy
 
-# —— 矩形线段求交：与“前沿直线” u·p = c 的交点 ——
-def segment_line_intersections(p1, p2, u, c):
-    # 线段参数：p(t)=p1+t*(p2-p1), t∈[0,1]
-    v = p2 - p1
-    denom = np.dot(u, v)
-    if abs(denom) < 1e-12:
-        # 平行：整段都在同一侧或重合
-        if abs(np.dot(u, p1) - c) < 1e-9 and abs(np.dot(u, p2) - c) < 1e-9:
-            # 共线：返回整个线段两端
-            return [p1.copy(), p2.copy()]
-        return []
-    t = (c - np.dot(u, p1)) / denom
-    if -1e-9 <= t <= 1 + 1e-9:
-        return [p1 + t * v]
-    return []
 
-def line_rect_intersection(rect_xy, u, c):
-    """
-    rect_xy: 4个角(顺时针/逆时针) in ENU 2D, e.g. [SW, SE, NE, NW]
-    u: forward 单位向量(2,)
-    c: 标量，使得 u·p=c 的直线与矩形相交
-    返回：与矩形相交得到的“前沿线段”的两个端点（2个点）
-    """
-    pts = []
-    for i in range(4):
-        p1 = rect_xy[i]
-        p2 = rect_xy[(i + 1) % 4]
-        pts += segment_line_intersections(p1, p2, u, c)
-    # 去重并只取两个端点
-    uniq = []
-    for p in pts:
-        if not any(np.linalg.norm(p - q) < 1e-6 for q in uniq):
-            uniq.append(p)
-    if len(uniq) > 2:
-        # 共线情况会出现多点，取投影最小/最大两个
-        projs = [np.dot(p, u) for p in uniq]
-        idx_min = int(np.argmin(projs)); idx_max = int(np.argmax(projs))
-        return [uniq[idx_min], uniq[idx_max]]
-    return uniq  # 可能是0,1或2个点
-
+#计算敌群前进方向的前沿边和后沿边，并进行无人机占位
 def generate_placements_with_bearing(
     enemy_center_dms, enemy_latrange_dms, enemy_lonrange_dms,
-    distance_m,  bearing_deg,
-    start_side='left', max_uavs=None, max_rows=999
+    distance_m,  bearing_deg, exclusion_radius_m, preplaced_dms,
+    start_side='left', max_rows=999, first_uav_num = 45, second_uav_num = 30
 ):
     #先对中心进行转化
     lat_c, lon_c, alt_c = GeodeticConverter.decimal_dms_to_degrees(enemy_center_dms)
-
     alt = float(alt_c)
 
     #得到四个角的角点位置
@@ -688,9 +646,12 @@ def generate_placements_with_bearing(
     ws = [enemy_lonrange_dms[0], enemy_latrange_dms[0], enemy_center_dms[2]]  # 西南
     corners = [ws, wn, en, es]
 
+    #以西南角为中心，东南角为x轴建立局部坐标系
     ws_lat, ws_lon, ws_alt = GeodeticConverter.decimal_dms_to_degrees(ws)
     es_lat, es_lon, es_alt = GeodeticConverter.decimal_dms_to_degrees(es)
 
+    #重新以中心建立局部坐标系，便于进行坐标计算
+    converter_enu = GeodeticConverter.GeodeticToLocalConverter(ws_lat, ws_lon, ws_alt, es_lat, es_lon, es_alt)
 
     #将四个角点转度数
     corners_degree = []
@@ -698,48 +659,43 @@ def generate_placements_with_bearing(
         corner_lat, corner_lon, corner_alt = GeodeticConverter.decimal_dms_to_degrees(corner)
         corners_degree.append([corner_lat, corner_lon, corner_alt])
 
-
-    distance = converter.calculate_spherical_distance(lat_c, corners_degree[2][1], alt_c,
-                                                      corners_degree[2][0], corners_degree[2][1], corners_degree[2][2])
-
-    new_lat, new_lon, new_alt, d, = converter.calculate_destination_with_climb_angle(lat_c, lon_c, alt_c, bearing_deg,
-                                                                                     2500, 0)
-
-    #重新以中心建立局部坐标系，便于进行坐标计算
-    converter_enu = GeodeticConverter.GeodeticToLocalConverter(ws_lat, ws_lon, ws_alt, es_lat, es_lon, es_alt)
-
     #四个角点的度数转enu坐标系
     corners_xy = []
-
     for (la, lo, al) in corners_degree:
         x, y, z = converter_enu.geodetic_to_local(la, lo, al)  # East=x, North=y
         corners_xy.append((x, y))
 
     #补回首点，便于边遍历
     corners_xy.append(corners_xy[0])
-    print("角点的直角坐标",corners_xy)
 
-    #前向单位向量 f（bearing: 北=0，顺时针）
-    theta = math.radians(270)
-    fx, fy = math.sin(theta), math.cos(theta)  # ENU 中朝向
-    f = (fx, fy)
+    #对方向进行规划，如果是-45到45就当作是北方向，依次类推
+    bearing_front = 0
+    if 315 < bearing_deg <= 360 or 0 < bearing_deg <=45 :
+        bearing_front = 0
+    elif 45 < bearing_deg <= 135 :
+        bearing_front = 90
+    elif 135 < bearing_deg <= 225 :
+        bearing_front = 180
+    elif 225 < bearing_deg <= 315 :
+        bearing_front = 270
 
+    #飞行前进的方向需要先转弧度制
+    theta = math.radians(bearing_front)
+    fx, fy = math.sin(theta), math.cos(theta)  #ENU中朝向
+    f = (fx, fy) #得到方向向量
 
     #计算各角点在f方向上的投影
     projs = [fx*px + fy*py for (px, py) in corners_xy[:-1]]  #就是在方向上的投影距离，原点-方向
     Smax = max(projs)
+    Smin = min(projs)
 
-    #求“支撑线” dot(f, x)=Smax 与四条边的交点
-    tol_rel = 1e-4  # 相对阈值：与边长成比例
-    tol_abs = 1e-3  # 绝对兜底（米）
-    t_eps = 1e-9  # t 的容差
-    inters = []
-    flag = 0
-    tag = 0
+
+    tol_rel = 1e-4  #假设误差大概是4个数量级
+    inters_front, inters_back = [], []
     alpha = 0
     beta = 0
 
-    #扫描四条边
+    #扫描四条边,依次对边进行判断，得到前沿边和后沿边
     for i in range(4):
         x0, y0 = corners_xy[i]
         x1, y1 = corners_xy[i+1]
@@ -751,72 +707,230 @@ def generate_placements_with_bearing(
         elif fx < tol_rel and (i == 1 or i == 3):
             beta = abs(dy)
 
-        print("前向单位向量f", f)
-        print("第", i ,"次时x边长多少:",dx, "y边长多少",dy)
-
-        edge_len = math.hypot(dx, dy)  # 线段长度 (米)
         denom = fx * dx + fy * dy  # 与前向 f 的点积
-        s0 = fx * x0 + fy * y0
-        s1 = fx * dx + fy * dy
-
-
-        print("denom", denom)
 
         # 是否平行（与支撑线平行 <=> 与 f 垂直）
-        is_parallel = abs(denom) <= tol_abs + abs(alpha * fx) + abs(beta * fy)
-        print("判断", is_parallel, "误差值", tol_abs + abs(alpha * fx) + abs(beta * fy))
-
+        is_parallel = abs(denom) <= tol_rel + abs(alpha * fx) + abs(beta * fy)
 
         if is_parallel :
             # 判是否共线（端点都在支撑线上）
             proj0 = fx * x0 + fy * y0
             proj1 = fx * x1 + fy * y1
-            if max(proj0, proj1) == Smax:
-                inters.append((x0, y0, 0))
-                inters.append((x1, y1, 0))
-            print("共线时的inters", inters)
-            tag = 1
+            if max(proj0, proj1) == Smax: #记录前沿坐标点
+                inters_front.append((x0, y0, 0))
+                inters_front.append((x1, y1, 0))
+
+            if min(proj0, proj1) == Smin: #记录后沿坐标点
+                inters_back.append((x0, y0, 0))
+                inters_back.append((x1, y1, 0))
             # 不共线则没有交点，continue
             continue
 
+    inters_front = [(float(x), float(y), float(z)) for x, y, z in inters_front]
+    inters_back = [(float(x), float(y), float(z)) for x, y, z in inters_back]
 
-
-    for i in range(4):
-        x0, y0 = corners_xy[i]
-        x1, y1 = corners_xy[i + 1]
-        dx, dy = x1 - x0, y1 - y0  # 这条边的方向向量
-
-        denom = fx * dx + fy * dy  # 与前向 f 的点积
-
-        # 非平行：唯一交点，解参数 t
-        t = (Smax - (fx * x0 + fy * y0)) / denom
-        if tag == 0 and (-t_eps <= t <= 1 + t_eps):
-            # 裁剪回线段范围
-            t = max(0.0, min(1.0, t))
-            xi, yi = x0 + t * dx, y0 + t * dy
-
-            # 去重（避免穿顶点时重复）
-            if not any(abs(xi - xj) < 1e-6 and abs(yi - yj) < 1e-6 for (xj, yj) in inters):
-                inters.append((xi, yi, 0))
-                print("没共线时的inters", inters)
-
-    print("inters", inters)
-    inters = [(float(x), float(y), float(z)) for x, y, z in inters]
-
+    #前沿坐标点转dms（好像没用上）
     front_dms = []
-    for inter in inters:
-
+    for inter in inters_front:
         inter_dms = converter_enu.local_to_geodetic_dms(inter)
-        # inter_dms[2] = alt
+        inter_dms[2] = alt
         front_dms.append(inter_dms)
 
-    print("front_dms", front_dms)
+    #计算左手位置的方向向量
+    lx, ly = -fy, fx  # 左方向（面向 f 时左手边）
+
+    #如果左手端点的投影值小于右手端点的投影值，那么说明左右端点存反了，重新存放
+    if dot_projection(inters_front[0], lx, ly) < dot_projection(inters_front[1], lx, ly):
+        inters_front[0], inters_front[1] = inters_front[1], inters_front[0]  # 交换，确保 pL_raw 是左端
+    if dot_projection(inters_back[0], lx, ly) < dot_projection(inters_back[1], lx, ly):
+        inters_back[0], inters_back[1] = inters_back[1], inters_back[0]
+
+    pL_raw, pR_raw = inters_front[0], inters_front[1]
+    #计算方向单位向量u，沿着u走其对应的xy的分量
+    ux, uy = pR_raw[0] - pL_raw[0], pR_raw[1] - pL_raw[1]
+    seg_len = math.hypot(ux, uy)
+    if seg_len < 1e-6:
+        return [], corners
+    ux, uy = ux / seg_len, uy / seg_len
+
+    #设默认冲突半径，如果没有，就默认是探测距离的一半
+    if exclusion_radius_m is None:
+        exclusion_radius_m = 0.5 * float(distance_m[0])
+
+    #把预放置位置DMS转到ENU，便于冲突检测
+    preplaced_local = []
+    pre_lat, pre_lon, pre_alt = GeodeticConverter.decimal_dms_to_degrees(preplaced_dms)
+    local = converter_enu.geodetic_to_local(pre_lat, pre_lon ,pre_alt)
+    preplaced_local.append(local)
+
+    #调用占位策略
+    placed_local, placements_dms = occupation_strategy(start_side, f, distance_m, first_uav_num, second_uav_num, seg_len, max_rows, inters_front, inters_back, ux, uy,
+                                                       converter_enu, preplaced_local, exclusion_radius_m, alt)
+
+    return front_dms, corners, placements_dms
 
 
-    return front_dms, corners
+
+def too_close(pt, placed_local, preplaced_local, exclusion_radius_m):
+    """与已放或预放过近则拒绝放置"""
+    px, py = pt[0], pt[1]
+    # 已放
+    for qx, qy, _ in placed_local:
+        if math.hypot(px - qx, py - qy) < exclusion_radius_m:
+            return True
+    # 预放
+    for qx, qy, _ in preplaced_local:
+        if math.hypot(px - qx, py - qy) < exclusion_radius_m:
+            return True
+    return False
+
+
+def occupation_strategy(start_side, f, distance_m, first_uav_num, second_uav_num, seg_len, max_rows, inters_front, inters_back, ux, uy,
+                        converter_enu, preplaced_local, exclusion_radius_m, alt):
+    fx, fy = f[0], f[1]
+    pL_raw, pR_raw = inters_front[0], inters_front[1]
+    pL_back, pR_back = inters_back[0], inters_back[1]
+
+    projs = [fx * p[0] + fy * p[1] for p in inters_back]  # 就是在方向上的投影距离，原点-方向
+    Smin = min(projs)
+    print("最小值:", Smin)
+
+    #放置顺序控制
+    left_first = (str(start_side).lower() == 'left')
+
+    # 逐行推进
+    placements_dms = []
+    placed_local = []
+    f_back = (-fx, -fy)  # 向后移动一行
+
+    u_margin = float(distance_m[0])  # 与边界的“退让”距离
+    step_along = float(distance_m[0])  # 同一行内左右向内推进步长
+    row_offset = float(distance_m[0])  # 行间距（向后）
+
+    uavs_budget = first_uav_num
+    uavs_budget2 = second_uav_num
+
+    second_replace = False
+    min_projection = float('inf')
+
+    #对行数进行遍历，目前并没有限制行数
+    for r in range(int(max_rows)):
+        if uavs_budget <= 0:
+            break
+
+        #本行的左右端点（整体向后平移 r*row_offset）
+        row_shift_x = f_back[0] * (r * row_offset)
+        row_shift_y = f_back[1] * (r * row_offset)
+        row_L = (pL_raw[0] + row_shift_x, pL_raw[1] + row_shift_y, 0.0)
+        row_R = (pR_raw[0] + row_shift_x, pR_raw[1] + row_shift_y, 0.0)
+
+        #有效可用长度
+        usable_len = seg_len - u_margin
+        if usable_len < step_along - 1e-6:
+            break  # 这一行已经放不下任意一点
+
+        #交替放置：k=0,1,2,... 左右向内推进
+        k_max = int((seg_len - u_margin) // (2.0 * step_along))
+        if k_max < 0 :
+            break
+
+        #一行中能放置的最大对数
+        for k in range(k_max + 1):
+            # 左侧候选
+            Lx = row_L[0] + ux * (0.5 * u_margin + k * step_along)
+            Ly = row_L[1] + uy * (0.5 * u_margin + k * step_along)
+
+            # 右侧候选
+            Rx = row_R[0] - ux * (0.5 * u_margin + k * step_along)
+            Ry = row_R[1] - uy * (0.5 * u_margin + k * step_along)
+
+            # 已经相遇或交叉，结束本行
+            if dot_projection((Rx - Lx, Ry - Ly, 0.0), ux, uy) < 0:
+                break
+
+            lpoint_projection = Lx * fx + Ly * fy
+            rpoint_projection = Rx * fx + Ry * fy
+
+            # 如果当前放置的点位判断出来与已经放置的点位或者预放置的点位距离太近，那么就不接受当前无人机放置该点位
+
+            if(not second_replace) and (min(lpoint_projection, rpoint_projection) < Smin):
+                uavs_budget += second_uav_num
+                second_replace = True
+
+            pair = [("left", (Lx, Ly, 0.0)), ("right", (Rx, Ry, 0.0))]
+            # print("第", r, "行中的第", k, "个具体坐标是：", pair)
+
+            #如果不是左边先放，那就交换
+            if not left_first:
+                pair.reverse()
+
+            #依次尝试放置本对（左右）
+            for side, cand in pair:
+                if uavs_budget <= 0:
+                    break  # 结束本对，随后结束本行与所有行
+
+
+                if not too_close(cand, placed_local, preplaced_local, exclusion_radius_m):
+                    dms = converter_enu.local_to_geodetic_dms(cand)
+                    dms[2] = distance_m[1] + alt # 固定高度；如需要每行变化，这里改
+                    placements_dms.append(dms)
+                    placed_local.append(cand)
+                    uavs_budget -= 1
+
+                    if not second_replace:
+                        min_projection = min(min_projection, lpoint_projection, rpoint_projection)
+
+                if uavs_budget <= 0:
+                    break  # 本行提前结束
+
+            if uavs_budget <= 0:
+                break
+
+
+    if second_replace == False:
+        for r in range(int(max_rows)):
+            if uavs_budget2 <= 0:
+                break
+                # 计算从前沿移动到后沿需要的“行”数量
+
+            # 在后沿处新起一行
+            row_shift_x = f_back[0] * (r * row_offset)
+            row_shift_y = f_back[1] * (r * row_offset)
+            row_L = (pL_back[0] + row_shift_x, pL_back[1] + row_shift_y, 0.0)
+            row_R = (pR_back[0] + row_shift_x, pR_back[1] + row_shift_y, 0.0)
+
+
+            k_max = int((seg_len - u_margin) // (2.0 * step_along))
+            for k in range(k_max + 1):
+                if uavs_budget2 <= 0:
+                    break
+                offset = (0.5 * u_margin + k * step_along)
+                Lx = row_L[0] + ux * offset
+                Ly = row_L[1] + uy * offset
+                Rx = row_R[0] - ux * offset
+                Ry = row_R[1] - uy * offset
+
+                pair = [("left", (Lx, Ly, 0.0)), ("right", (Rx, Ry, 0.0))]
+                if not left_first:
+                    pair.reverse()
+
+                for side, cand in pair:
+                    if uavs_budget2 <= 0:
+                        break
+
+                    if not too_close(cand, placed_local, preplaced_local, exclusion_radius_m):
+                        dms = converter_enu.local_to_geodetic_dms(cand)
+                        dms[2] = distance_m[1] + alt
+                        placements_dms.append(dms)
+                        placed_local.append(cand)
+                        uavs_budget2 -= 1
+
+    return placed_local, placements_dms
+
 
 
 # 第三批次（一架无人机）先进行一段加速之后的位置求取，加速结束后再用uav_timed_position计算位置
+
 def third_uav_first_speed_up_timed_position(center_pos, enemy_center, uav_speed, uav_max_speed, acceleration):
     uav_lat, uav_lon, uav_alt = GeodeticConverter.decimal_dms_to_degrees(center_pos)
     enemy_lat, enemy_lon, enemy_alt = GeodeticConverter.decimal_dms_to_degrees(enemy_center)
@@ -1245,7 +1359,8 @@ def create_uav_scatter(points, color):
 def plot_positions(uav_first_geo_init, uav_second_geo_init,
                     enemy_center_init, meet_last_enemy_center, chase_enemy_center,
                     last_uav, meet_last_uav_point, after_turn_last_uav, chase_last_point,
-                    meet_first_uav_point, after_turn_first_uav, meet_second_uav_point, after_turn_second_uav,placements, uav_base):
+                    meet_first_uav_point, after_turn_first_uav, meet_second_uav_point, after_turn_second_uav, corners, placements_dms, uav_base):
+
 
     # ==================================点位转坐标=============================================
     # 初始第1波点位 uav_dms, enemy_dms,
@@ -1278,13 +1393,16 @@ def plot_positions(uav_first_geo_init, uav_second_geo_init,
     last_chase_enemy_lat, last_chase_enemy_lon, last_chase_enemy_alt = GeodeticConverter.decimal_dms_to_degrees(chase_enemy_center)  # 被最后一架无人机追上时的位置
 
     # front_lat, front_lon, front_alt = GeodeticConverter.decimal_dms_to_degrees(placements[0])
-    p0_lat, p0_lon, p0_alt = GeodeticConverter.decimal_dms_to_degrees(placements[0][0])
-    p1_lat, p1_lon, p1_alt = GeodeticConverter.decimal_dms_to_degrees(placements[0][1])
+    # p0_lat, p0_lon, p0_alt = GeodeticConverter.decimal_dms_to_degrees(placements[0][0])
+    # p1_lat, p1_lon, p1_alt = GeodeticConverter.decimal_dms_to_degrees(placements[0][1])
 
-    ws_lat, ws_lon, ws_alt = GeodeticConverter.decimal_dms_to_degrees(placements[1][0])#西南
-    wn_lat, wn_lon, wn_alt = GeodeticConverter.decimal_dms_to_degrees(placements[1][1])#西北
-    en_lat, en_lon, en_alt = GeodeticConverter.decimal_dms_to_degrees(placements[1][2])#东北
-    es_lat, es_lon, es_alt = GeodeticConverter.decimal_dms_to_degrees(placements[1][3])#东南
+    ws_lat, ws_lon, ws_alt = GeodeticConverter.decimal_dms_to_degrees(corners[0])
+    wn_lat, wn_lon, wn_alt = GeodeticConverter.decimal_dms_to_degrees(corners[1])
+    en_lat, en_lon, en_alt = GeodeticConverter.decimal_dms_to_degrees(corners[2])
+    es_lat, es_lon, es_alt = GeodeticConverter.decimal_dms_to_degrees(corners[3])
+
+    placement_lat, placement_lon, placement_alt = geo_to_degrees(placements_dms)
+
 
 
 
@@ -1333,12 +1451,13 @@ def plot_positions(uav_first_geo_init, uav_second_geo_init,
         # 'Chase Last UAV': [chase_last_lat, chase_last_lon, chase_last_alt],
         # 'uav base': [base_lat, base_lon, base_alt],
         # 'fornt point':[front_lat, front_lon, front_alt],
+
         #下面三个点要继续改
         # 'Last uav':[last_lat, last_lon, last_alt],
         # 'Last uav meet enemy': [meet_last_lat, meet_last_lon, meet_last_alt],
         # 'Last uav turn':[after_turn_last_lat, after_turn_last_lon, after_turn_last_alt],
-        'p0':[p0_lat, p0_lon, p0_alt],
-        'p1':[p1_lat, p1_lon, p1_alt],
+        # 'p0':[p0_lat, p0_lon, p0_alt],
+        # 'p1':[p1_lat, p1_lon, p1_alt],
         'Enemy center init':[enemy_center_init_lat, enemy_center_init_lon, enemy_center_init_alt],
         'ws':[ws_lat, ws_lon, ws_alt],
         'es':[es_lat, es_lon, es_alt],
@@ -1371,6 +1490,27 @@ def plot_positions(uav_first_geo_init, uav_second_geo_init,
         lats.append(a)
         lons.append(b)
         alts.append(c)
+
+    # 2) 生成标签文本（显示 UAV 编号）
+    pl_labels = [f"UAV {i + 1}" for i in range(len(placement_lat))]
+
+    # 3) 合并成一个 Scatter3d（效率高）
+    scatter_points.append(go.Scatter3d(
+        x=placement_lon,
+        y=placement_lat,
+        z=placement_alt,
+        mode='markers+text',  # 如果太挤，可改 'markers'
+        marker=dict(size=4, color='green'),  # 统一样式；也可用 colorscale
+        name='UAV placements',
+        text=pl_labels,  # 点旁边显示编号
+        textposition="top center",
+        hovertemplate=(
+            "<b>%{text}</b><br>"  # %{text} 就是 pl_labels
+            "Lon: %{x}<br>"
+            "Lat: %{y}<br>"
+            "Alt: %{z} m<br><extra></extra>"
+        )
+    ))
 
     # ===== 多无人机轨迹（三阶段）=====
     # 绘制第二波次无人机的航迹()
@@ -1478,10 +1618,8 @@ if __name__ == "__main__":
     #计算最后一架无人机转弯起点位置、转弯180度后位置、追赶位置以及敌方中心在我方无人机开始转弯时位置、被追赶上位置；转弯时间，追逐时间
 
     last_begin_turn_dms, after_turning_last_uav_dms, chase_uav_dms, meet_last_enemy_dms, chase_enemy_dms, turning_time, chase_time, last_time_info = last_uav_move_strategy(
-
         data['minimum_speed'], data['maximum_speed'], uav_deceleration_speed, data['speed'],
         max_distance, data['detect_distance'],last_point, data['basepoint'], min_enemy_dms, acceleration)
-
     # print("输出时间信息:", last_time_info)
 
     # =================================处理第1波次无人机===========================================
@@ -1500,25 +1638,21 @@ if __name__ == "__main__":
 
     remain_second_uav_sorted = second_uav_sorted[1:]
     # print("全部的以及剩余的:", second_uav_sorted)
-    # print("剩余的:", remain_second_uav_sorted)
 
     meet_second_uav_dms, after_turn_second_uav_dms, second_uav_time_info, bearing_enemy2= first_uav_move_strategy(data['minimum_speed'], uav_deceleration_speed, data['maximum_speed'], data['speed'], remain_second_uav_sorted, second_uav_center,
                              max_enemy_dms, 1000, acceleration, time_detect)
 
-
-    print("敌群飞行方向:", bearing_enemy)
-
-    placements = generate_placements_with_bearing(
+    #占位策略，得到无人机上的占位信息，便于追击
+    front_dms, corners, placements_dms = generate_placements_with_bearing(
         data['enemy_approx'], data['enemy_latrange'], data['enemy_lonrange'],
-        distance_m=400,
-        bearing_deg=270,  # 敌方从东向西
-        start_side='left',  # 先左（相对 forward 的左侧=南/北取决于bearing）
-        max_uavs=30, max_rows=10
+        distance_m = data['near_detect_distance'],
+        bearing_deg = bearing_enemy,  #敌方从东向西
+        exclusion_radius_m = None,
+        preplaced_dms=data['enemy_approx'],
+        start_side='left',  #先左
+        max_rows=100, first_uav_num=data['first_num'], second_uav_num=data['second_num']
     )
 
-
-
-    print("先试试",placements)
 
 
 
@@ -1534,7 +1668,8 @@ if __name__ == "__main__":
     plot_positions(first_sorted_dms, second_sorted_dms,
                    data['enemy_approx'], meet_last_enemy_dms, chase_enemy_dms,
                    last_point, last_begin_turn_dms, after_turning_last_uav_dms, chase_uav_dms,
-                   meet_first_uav_dms, after_turn_first_uav_dms, meet_second_uav_dms, after_turn_second_uav_dms,placements, data['basepoint'])
+                   meet_first_uav_dms, after_turn_first_uav_dms, meet_second_uav_dms, after_turn_second_uav_dms,corners, placements_dms, data['basepoint'])
+
 
 
 
