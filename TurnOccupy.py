@@ -926,8 +926,128 @@ def occupation_strategy(start_side, f, distance_m, first_uav_num, second_uav_num
     return placed_local, placements_dms
 
 
+def pursue_moving_point(
+        uav_dms,  # 我方无人机初始 DMS
+        target_dms,  # 敌群西南角（或任一角/中心）初始 DMS
+        enemy_bearing_deg,  # 敌群航向（正北0°、顺时针）
+        enemy_speed,  # 敌群地速 m/s
+        *,
+        v0=100.0,  # 我方起始空速 m/s
+        v_max=500.0,  # 我方最大空速 m/s
+        a_acc=80.0,  # 加速度 m/s^2
+        a_dec=80.0,  # 减速度 m/s^2
+        pos_tol=3.0,  # 空间位置收敛阈值 m
+        vel_tol=1.0,  # 速度收敛阈值 m/s（接近敌速）
+        dt=0.1,  # 仿真步长 s
+        k_lead=0.6,  # 前视系数（0.4~0.8 常用）
+        d_margin=20.0,  # 刹车距离安全裕度 m
+        max_steps=200000  # 最长仿真步数（防止死循环）
+):
+    """
+    追击单一随时间前进的点（不含占位偏移）。
+    输出：分段时长、总时长、敌/我距离、轨迹等。
+    """
+    # 1) 固定本地坐标系
+    conv = build_local_converter_at(target_dms)
 
-# 第三批次（一架无人机）先进行一段加速之后的位置求取，加速结束后再用uav_timed_position计算位置
+    # 2) 初始位姿（本地坐标）
+    u_lat, u_lon, u_alt = dms2deg(uav_dms)
+    t_lat, t_lon, t_alt = dms2deg(target_dms)
+    U = np.array(conv.geodetic_to_local(u_lat, u_lon, u_alt), dtype=float)
+    T0 = np.array(conv.geodetic_to_local(t_lat, t_lon, t_alt), dtype=float)  # ≈ [0,0,0]
+
+    f, _, _ = bearing_to_basis(enemy_bearing_deg)
+    v_f = float(enemy_speed)
+
+    # 3) 标称下界估计（可用于 sanity check）
+    R0 = np.linalg.norm(T0 - U)
+    tri, t_acc_est, t_cruise_est, t_dec_est, v_peak_est = trapezoid_time_lower_bound(
+        R0, v0, v_max, v_f, a_acc, a_dec
+    )
+
+    # 4) 闭环追击
+    t = 0.0
+    v = float(v0)
+    S_u = 0.0
+    t_acc = t_cruise = t_dec = 0.0
+    state = "acc"
+
+    traj_u = [U.copy()]  # 仅需可视化时使用
+
+    for _ in range(max_steps):
+        # 敌点位置
+        T_t = T0 + enemy_speed * t * f
+
+        # 到目标的相对向量
+        r = T_t - U
+        dist = float(np.linalg.norm(r))
+
+        # 收敛判据：位置逼近 & 速度逼近敌速
+        if dist < pos_tol and abs(v - v_f) < vel_tol:
+            break
+
+        # 前视引导
+        t_lead = float(np.clip(k_lead * dist / max(v, 1e-3), 0.3, 3.0))
+        T_lead = T0 + enemy_speed * (t + t_lead) * f
+        dvec = T_lead - U
+        dnorm = float(np.linalg.norm(dvec))
+        if dnorm < 1e-6:
+            break
+        dir_hat = dvec / dnorm
+
+        # 刹车距离（减到敌速）
+        d_stop = 0.0 if v <= v_f else (v * v - v_f * v_f) / (2 * a_dec)
+
+        # 状态机：加/巡/减
+        if dist <= d_stop + d_margin:
+            # 减速
+            v_new = max(v - a_dec * dt, v_f)
+            state = "dec"
+            t_dec += dt
+        else:
+            if v < v_max:
+                v_new = min(v + a_acc * dt, v_max)
+                state = "acc"
+                t_acc += dt
+            else:
+                v_new = v
+                state = "cruise"
+                t_cruise += dt
+
+        # 位置更新（我方）
+        U = U + v_new * dt * dir_hat
+        traj_u.append(U.copy())
+
+        # 时间/路程累计
+        S_u += v_new * dt
+        v = v_new
+        t += dt
+
+    t_total = t
+    S_e = enemy_speed * t_total
+
+    # 可达性粗检查：若跑满步数仍未收敛，多半是几何+速度不可达或容差太严
+    reached = (t < max_steps * dt)
+
+    return {
+        "reached": reached,
+        "t_total": t_total,
+        "t_acc": t_acc,
+        "t_cruise": t_cruise,
+        "t_dec": t_dec,
+        "S_uav": S_u,
+        "S_enemy": S_e,
+        "estimate_lower_bound": {
+            "triangular": not tri,
+            "t_acc_est": t_acc_est,
+            "t_cruise_est": t_cruise_est,
+            "t_dec_est": t_dec_est,
+            "v_peak_est": v_peak_est,
+            "R0": R0
+        },
+        "traj_u_local": np.array(traj_u)  # ENU轨迹，需可视化时使用
+
+    # 第三批次（一架无人机）先进行一段加速之后的位置求取，加速结束后再用uav_timed_position计算位置
 
 def third_uav_first_speed_up_timed_position(center_pos, enemy_center, uav_speed, uav_max_speed, acceleration):
     uav_lat, uav_lon, uav_alt = GeodeticConverter.decimal_dms_to_degrees(center_pos)
