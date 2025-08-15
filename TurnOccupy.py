@@ -1,3 +1,4 @@
+import geopy
 import numpy as np
 import matplotlib.pyplot as plt
 import math
@@ -26,6 +27,7 @@ from GeodeticConverter import dms_to_decimal
 from data.dataset import dataset
 from sympy import symbols, solve, Eq, sqrt
 
+import plotly.graph_objects as go
 
 GRAVITY_EARTH = 9.80665  # 地球表面重力加速度
 R = 6371000  # 地球半径，单位：米
@@ -1114,35 +1116,37 @@ def geo_to_degrees(geo):
 
 
 # 绘制群体散点+轨迹
-def plot_point_group(dms_list, label, color='orange', mode='markers+lines'):
-    lats, lons, alts = geo_to_degrees(dms_list)
-    return go.Scatter3d(
-        x=lons,
-        y=lats,
-        z=alts,
-        mode=mode,
-        marker=dict(size=4, color=color),
-        name=label,
-        text=[f"{label} {i}" for i in range(len(lats))],
-        hovertemplate=
-            f"<b>{label}</b><br>" +
-            "Lon: %{x}<br>Lat: %{y}<br>Alt: %{z} m<br><extra></extra>"
-    )
+# def plot_point_group(dms_list, label, color='orange', mode='markers+lines'):
+#     lats, lons, alts = geo_to_degrees(dms_list)
+#     return go.Scatter3d(
+#         x=lons,
+#         y=lats,
+#         z=alts,
+#         mode=mode,
+#         marker=dict(size=4, color=color),
+#         name=label,
+#         text=[f"{label} {i}" for i in range(len(lats))],
+#         hovertemplate=
+#             f"<b>{label}</b><br>" +
+#             "Lon: %{x}<br>Lat: %{y}<br>Alt: %{z} m<br><extra></extra>"
+#     )
 
 
 # 每架无人机三阶段航迹
 def plot_uav_trajectories(init_geo, meet_geo, turn_geo, label_prefix="UAV", color="green"):
     traces = []
-    for i in range(len(init_geo)):
-        points = [init_geo[i], meet_geo[i], turn_geo[i]]
+    #初始位置到相遇位置的直线航迹
+    for i in range(2): #len(init_geo)
+        points = [init_geo[i], meet_geo[i]] #, turn_geo[i]
         lats, lons, alts = [], [], []
+        #将每一个点转为度数，分别转换每一架无人机的初始和相遇位置
         for dms in points:
             lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(dms)
             lats.append(lat)
             lons.append(lon)
             alts.append(alt)
 
-        trace = go.Scatter3d(
+        line_trace = go.Scatter3d(
             x=lons,
             y=lats,
             z=alts,
@@ -1155,23 +1159,118 @@ def plot_uav_trajectories(init_geo, meet_geo, turn_geo, label_prefix="UAV", colo
                 f"<b>{label_prefix}_{i}</b><br>" +
                 "Lon: %{x}<br>Lat: %{y}<br>Alt: %{z} m<br><extra></extra>"
         )
-        traces.append(trace)
+        traces.append(line_trace)
+    #生成半圆航迹
+
+    for ii in range(2):
+        lats, lons, alts = [], [], []
+        # 提取相遇位置和转弯位置，分别转换为角度
+        points = [meet_geo[ii], turn_geo[ii]]
+        meet_lat, meet_lon, meet_alt = GeodeticConverter.decimal_dms_to_degrees(points[0])
+        turn_lat, turn_lon, turn_alt = GeodeticConverter.decimal_dms_to_degrees(points[1])
+
+        # 计算两点的中点
+        midpoint_lat = (meet_lat + turn_lat) / 2
+        midpoint_lon = (meet_lon + turn_lon) / 2
+
+        # 计算两点之间的距离
+        distance = converter.calculate_spherical_distance(meet_lat, meet_lon, meet_alt, turn_lat, turn_lon, turn_alt)  # 单位：公里
+        radius = distance / 2  # 半径为两点之间的距离的一半
+        print("半径半径", radius)
+        # 创建半圆轨迹
+
+        for theta in np.linspace(0, 180, 10):  # 半圆角度从 0 到 180 度
+            # 使用圆的参数方程计算经纬度，角度转弧度，“米”转经纬方向距离
+            delta_lat = radius * np.cos(math.radians(theta)) / 111320   # 纬度
+            delta_lon = radius * np.sin(math.radians(theta)) / (111320 * np.cos(np.radians(midpoint_lat)))  # 经度
+            print("度数变化:", theta, delta_lat, delta_lon)
+
+            # 计算每个点的经纬度，从圆心开始计算
+            lat = midpoint_lat + delta_lat
+            lon = midpoint_lon + delta_lon
+            alt = (turn_alt + meet_alt) / 2  # 假设高度是中点的高度
+
+            #步长为10，所以这里append后一共是十个点
+            lats.append(lat)
+            lons.append(lon)
+            alts.append(alt)
+
+        # 创建轨迹图形
+        # print("理应得到的点:",(lats[0], lons[0], alts[0]))
+        arc_trace = go.Scatter3d(
+            x=lons, y=lats, z=alts,
+            mode='lines+markers',
+            name=f"{label_prefix}_trajectory",
+            marker=dict(size=3, color=color),
+            line=dict(color=color, width=2),
+            text=[f"{label_prefix}_point_{n}" for n in range(len(lats))],
+            hovertemplate=f"<b>{label_prefix}</b><br>" + "Lon: %{x}<br>Lat: %{y}<br>Alt: %{z} m<br><extra></extra>"
+        )
+        traces.append(arc_trace)
+
     return traces
 
+#从无人机或敌群位置中获取可视化散点位置
+def create_uav_scatter(points, color):
+    scatter_points = []
+
+    # 从字典中提取经纬度和高度信息
+    xs = [pt[1] for pt in points.values()]  # 经度
+    ys = [pt[0] for pt in points.values()]  # 纬度
+    zs = [pt[2] for pt in points.values()]  # 高度
+    labels = list(points.keys())  # 获取所有的标签
+    sizes = [3] * len(points)  # 设置所有点的大小
+    colors = [color] * len(points)  # 设置所有点的颜色
+
+    # 创建散点图
+    for i in range(len(xs)):
+        scatter_points.append(go.Scatter3d(
+            x=[xs[i]],
+            y=[ys[i]],
+            z=[zs[i]],
+            mode='markers+text',
+            marker=dict(size=sizes[i], color=colors[i]),
+            name=labels[i],
+            # text=[labels[i]],
+            textposition="top center",
+            hovertemplate=(
+                    f"<b>{labels[i]}</b><br>" +
+                    "Lon: %{x}<br>Lat: %{y}<br>Alt: %{z} m<br><extra></extra>"
+            )
+        ))
+
+    return scatter_points
 
 
 def plot_positions(uav_first_geo_init, uav_second_geo_init,
                     enemy_center_init, meet_last_enemy_center, chase_enemy_center,
                     last_uav, meet_last_uav_point, after_turn_last_uav, chase_last_point,
-                    meet_first_uav_point, after_turn_first_uav, placements, uav_base):
+                    meet_first_uav_point, after_turn_first_uav, meet_second_uav_point, after_turn_second_uav,placements, uav_base):
 
     # ==================================点位转坐标=============================================
     # 初始第1波点位 uav_dms, enemy_dms,
     first_uav_init_lats, first_uav_init_lons, first_uav_init_alts = geo_to_degrees(uav_first_geo_init)
     # 初始第2波点位
-    second_uav_init_lats, second_uav_inti_lons, second_uav_init_alts = geo_to_degrees(uav_second_geo_init)
+    second_uav_init_lats, second_uav_init_lons, second_uav_init_alts = geo_to_degrees(uav_second_geo_init)
     base_lat, base_lon, base_alt = GeodeticConverter.decimal_dms_to_degrees(uav_base)
 
+    # 使用 zip 函数将三个列表打包
+    first_uav_positions = {
+        f"First_UAV{i + 1}": [lat, lon, alt]  # 键名为 "First_UAVi"，值为 [纬度, 经度, 海拔]
+        for i, (lat, lon, alt) in enumerate(zip(first_uav_init_lats, first_uav_init_lons, first_uav_init_alts))
+    }
+
+    # 输出第一波次字典
+    # print("第一波次无人机位置字典：", first_uav_positions)
+
+    # 使用 zip 函数将三个列表打包
+    second_uav_positions = {
+        f"Second_UAV{i + 1}": [lat, lon, alt]  # 键名为 "Second_UAVi"，值为 [纬度, 经度, 海拔]
+        for i, (lat, lon, alt) in enumerate(zip(second_uav_init_lats, second_uav_init_lons, second_uav_init_alts))
+    }
+
+    # 输出第二波次字典
+    # print("第二波次无人机位置字典：", second_uav_positions)
     # ===================================敌群中心转坐标============================================
     # 初始中心（已知）
     enemy_center_init_lat, enemy_center_init_lon, enemy_center_init_alt = GeodeticConverter.decimal_dms_to_degrees(enemy_center_init)  # 开始敌群中心
@@ -1182,10 +1281,10 @@ def plot_positions(uav_first_geo_init, uav_second_geo_init,
     p0_lat, p0_lon, p0_alt = GeodeticConverter.decimal_dms_to_degrees(placements[0][0])
     p1_lat, p1_lon, p1_alt = GeodeticConverter.decimal_dms_to_degrees(placements[0][1])
 
-    ws_lat, ws_lon, ws_alt = GeodeticConverter.decimal_dms_to_degrees(placements[1][0])
-    wn_lat, wn_lon, wn_alt = GeodeticConverter.decimal_dms_to_degrees(placements[1][1])
-    en_lat, en_lon, en_alt = GeodeticConverter.decimal_dms_to_degrees(placements[1][2])
-    es_lat, es_lon, es_alt = GeodeticConverter.decimal_dms_to_degrees(placements[1][3])
+    ws_lat, ws_lon, ws_alt = GeodeticConverter.decimal_dms_to_degrees(placements[1][0])#西南
+    wn_lat, wn_lon, wn_alt = GeodeticConverter.decimal_dms_to_degrees(placements[1][1])#西北
+    en_lat, en_lon, en_alt = GeodeticConverter.decimal_dms_to_degrees(placements[1][2])#东北
+    es_lat, es_lon, es_alt = GeodeticConverter.decimal_dms_to_degrees(placements[1][3])#东南
 
 
 
@@ -1195,15 +1294,37 @@ def plot_positions(uav_first_geo_init, uav_second_geo_init,
     after_turn_last_lat, after_turn_last_lon, after_turn_last_alt = GeodeticConverter.decimal_dms_to_degrees(after_turn_last_uav)  # 转弯之后的点位
     chase_last_lat, chase_last_lon, chase_last_alt = GeodeticConverter.decimal_dms_to_degrees(chase_last_point)  # 追击后的点位
 
-    # ==================================第1波无人机============================================
-    # meet_first_uav_lat, meet_first_uav_lon, meet_first_alt = GeodeticConverter.decimal_dms_to_degrees(meet_first_uav_point)
-    # after_turn_first_lat, after_turn_last_lon, after_turn_last_alt = GeodeticConverter.decimal_dms_to_degrees(after_turn_first_uav)
+    # ==================================第1波无人机相遇和转弯============================================
+    meet_first_uav_lat, meet_first_uav_lon, meet_first_alt = geo_to_degrees(meet_first_uav_point)
+    after_turn_first_lat, after_turn_last_lon, after_turn_last_alt = geo_to_degrees(after_turn_first_uav)
+    # 使用 zip 函数将三个列表打包
+    meet_first_uav_positions = {
+        f"Meet_first_UAV{i + 1}": [lat, lon, alt]  # 键名为 "Meet_first_UAVi"，值为 [纬度, 经度, 海拔]
+        for i, (lat, lon, alt) in enumerate(zip(meet_first_uav_lat, meet_first_uav_lon, meet_first_alt))
+    }
 
+    # 使用 zip 函数将三个列表打包
+    turn_first_uav_positions = {
+        f"Turn_first_UAV{i + 1}": [lat, lon, alt]  # 键名为 "Turn_first_UAVi"，值为 [纬度, 经度, 海拔]
+        for i, (lat, lon, alt) in enumerate(zip(after_turn_first_lat, after_turn_last_lon, after_turn_last_alt))
+    }
 
+    # ==================================第2波无人机相遇和转弯============================================
+    meet_second_uav_lat, meet_second_uav_lon, meet_second_alt = geo_to_degrees(meet_second_uav_point)
+    after_turn_second_lat, after_turn_second_lon, after_turn_second_alt = geo_to_degrees(after_turn_second_uav)
+    # 使用 zip 函数将三个列表打包
+    meet_second_uav_positions = {
+        f"Meet_second_UAV{i + 1}": [lat, lon, alt]  # 键名为 "Meet_first_UAVi"，值为 [纬度, 经度, 海拔]
+        for i, (lat, lon, alt) in enumerate(zip(meet_second_uav_lat, meet_second_uav_lon, meet_second_alt))
+    }
 
+    # 使用 zip 函数将三个列表打包
+    turn_second_uav_positions = {
+        f"Turn_second_UAV{i + 1}": [lat, lon, alt]  # 键名为 "Turn_first_UAVi"，值为 [纬度, 经度, 海拔]
+        for i, (lat, lon, alt) in enumerate(zip(after_turn_second_lat, after_turn_second_lon, after_turn_second_alt))
+    }
 
     all_lons, all_lats, all_alts = [], [], []
-
     points = {
         # 'Last Enemy center ': [last_enemy_center_lat, last_enemy_center_lon, last_enemy_center_alt],
         # 'Last Chase Enemy': [last_chase_enemy_lat, last_chase_enemy_lon, last_chase_enemy_alt],
@@ -1212,6 +1333,10 @@ def plot_positions(uav_first_geo_init, uav_second_geo_init,
         # 'Chase Last UAV': [chase_last_lat, chase_last_lon, chase_last_alt],
         # 'uav base': [base_lat, base_lon, base_alt],
         # 'fornt point':[front_lat, front_lon, front_alt],
+        #下面三个点要继续改
+        # 'Last uav':[last_lat, last_lon, last_alt],
+        # 'Last uav meet enemy': [meet_last_lat, meet_last_lon, meet_last_alt],
+        # 'Last uav turn':[after_turn_last_lat, after_turn_last_lon, after_turn_last_alt],
         'p0':[p0_lat, p0_lon, p0_alt],
         'p1':[p1_lat, p1_lon, p1_alt],
         'Enemy center init':[enemy_center_init_lat, enemy_center_init_lon, enemy_center_init_alt],
@@ -1221,38 +1346,48 @@ def plot_positions(uav_first_geo_init, uav_second_geo_init,
         'wn':[wn_lat, wn_lon, wn_alt],
     }
 
-    # 提取坐标
-    xs = [pt[1] for pt in points.values()]  # 经度
-    ys = [pt[0] for pt in points.values()]  # 纬度
-    zs = [pt[2] for pt in points.values()]  # 高度
-    labels = list(points.keys())
-    colors = ['red', 'pink', 'purple', 'blue', 'cyan', 'orange', 'yellow', 'black', 'green']
-    sizes = [5] * len(points)
+    # 提取坐标 这里如果有再多波次，需要重构字典
+    scatter_points_0 = create_uav_scatter(points, color='blue')#points里面的点，包括东南西北
+    scatter_points_1 = create_uav_scatter(first_uav_positions, color='red')#第一波次无人机初始位置
+    scatter_points_2 = create_uav_scatter(second_uav_positions, color='orange')#第二波次无人机初始位置
+    scatter_points_3 = create_uav_scatter(meet_first_uav_positions, color='pink')#第一波次无人机与敌群相遇
+    scatter_points_4 = create_uav_scatter(turn_first_uav_positions, color='yellow')  # 第一波次无人机转弯之后
+    scatter_points_5 = create_uav_scatter(meet_second_uav_positions, color='gray')  # 第二波次无人机与敌群相遇
+    scatter_points_6 = create_uav_scatter(turn_second_uav_positions, color='brown')  # 第二波次无人机转弯之后
 
+    scatter_points = scatter_points_0 + scatter_points_1 + scatter_points_2 + scatter_points_3 + scatter_points_4 + scatter_points_5 + scatter_points_6#合并字典
 
-    # 创建各个点
-    scatter_points = []
-    for i in range(len(xs)):
-        scatter_points.append(go.Scatter3d(
-            x=[xs[i]],
-            y=[ys[i]],
-            z=[zs[i]],
-            mode='markers+text',
-            marker=dict(size=sizes[i], color=colors[i]),
-            name=labels[i],
-            text=[labels[i]],
-            textposition="top center",
-            hovertemplate=
-            f"<b>{labels[i]}</b><br>" +
-            "Lon: %{x}<br>Lat: %{y}<br>Alt: %{z} m<br><extra></extra>"
-        ))
+    #存储所有点，为了找坐标端点
+    merged_dict = {**points, **first_uav_positions, **second_uav_positions}#解压
+
+    # 创建空的列表来分别存储纬度、经度和高度
+    lats = []
+    lons = []
+    alts = []
+
+    # 遍历字典并提取每个 UAV 的位置
+    for key, value in merged_dict.items():
+        a, b, c = value  # 每个 UAV 的位置值是一个包含纬度、经度和高度的列表
+        lats.append(a)
+        lons.append(b)
+        alts.append(c)
 
     # ===== 多无人机轨迹（三阶段）=====
-    uav_trajectories = plot_uav_trajectories(
+    # 绘制第二波次无人机的航迹()
+    uav_first_trajectories = plot_uav_trajectories(
         uav_first_geo_init, meet_first_uav_point, after_turn_first_uav,
         label_prefix="First UAV", color='green')
 
-        # 示例轨迹线：你可以换成更复杂的路径
+    # 删除 last_uav 后的 uav_second_geo_init
+    uav_second_geo_init.remove(last_uav)
+    # 绘制第二波次无人机的航迹
+    uav_second_trajectories = plot_uav_trajectories(
+        uav_second_geo_init, meet_second_uav_point, after_turn_second_uav,
+        label_prefix="Second UAV", color='blue')
+
+    # 合并两波次的轨迹
+    all_uav_trajectories = uav_first_trajectories + uav_second_trajectories
+    #     # 示例轨迹线：你可以换成更复杂的路径
     # path = go.Scatter3d(
     #     x=[points['After Turn Last UAV'][1], points['Chase Last UAV'][1]],
     #     y=[points['After Turn Last UAV'][0], points['Chase Last UAV'][0]],
@@ -1261,26 +1396,25 @@ def plot_positions(uav_first_geo_init, uav_second_geo_init,
     #     line=dict(color='black', width=4),
     #     name='UAV Turn Path'
     # )
+    #
+    # # 提取 First UAV 轨迹坐标
+    # for group in [uav_first_geo_init, meet_first_uav_point, after_turn_first_uav]:
+    #     for dms in group:
+    #         lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(dms)
+    #         all_lats.append(lat)
+    #         all_lons.append(lon)
+    #         all_alts.append(alt)
 
-    # 提取 First UAV 轨迹坐标
-    for group in [uav_first_geo_init, meet_first_uav_point, after_turn_first_uav]:
-        for dms in group:
-            lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(dms)
-            all_lats.append(lat)
-            all_lons.append(lon)
-            all_alts.append(alt)
-
-    # 加入关键点坐标（原来的xs、ys、zs）
-    all_lats.extend(ys)
-    all_lons.extend(xs)
-    all_alts.extend(zs)
+    # 加入关键点坐标（所有的经纬海拔区间，为了可视化的坐标端点）
+    all_lats.extend(lats)
+    all_lons.extend(lons)
+    all_alts.extend(alts)
+    print(all_lons)
     print("显示最大最小值:",min(all_lons), max(all_lons), min(all_lats), max(all_lats))
 
-
-
     # 绘制图形
-    fig = go.Figure(scatter_points)   #+ [path]
-
+    # print("scatter points:", scatter_points)
+    fig = go.Figure(scatter_points + all_uav_trajectories)   #+ [path]
     # 设置显示参数
     fig.update_layout(
         scene=dict(
@@ -1288,8 +1422,8 @@ def plot_positions(uav_first_geo_init, uav_second_geo_init,
             yaxis_title='Latitude (°N)',
             zaxis_title='Altitude (m)',
 
-            xaxis=dict(range=[min(xs) - 0.1, max(xs) + 0.1]),
-            yaxis=dict(range=[min(ys) - 0.1, max(ys) + 0.1]),
+            xaxis=dict(range=[min(lons) - 0.1, max(lons) + 0.1]),#  124.1497,124.1897
+            yaxis=dict(range=[min(lats) - 0.1, max(lats) + 0.1]),#   29.67, 29.71
             zaxis=dict(range=[min(all_alts) - 1000, max(all_alts) + 1000]),
         ),
         margin=dict(l=0, r=0, t=50, b=0),
@@ -1360,7 +1494,7 @@ if __name__ == "__main__":
 
     meet_first_uav_dms, after_turn_first_uav_dms, first_uav_time_info, bearing_enemy = first_uav_move_strategy(data['minimum_speed'], uav_deceleration_speed, data['maximum_speed'], data['speed'], first_uav_sorted, first_uav_center,
                              max_enemy_dms, 1000, acceleration, time_detect)
-
+    print("第一波次与敌群相遇点：", meet_first_uav_dms)
 
     # =================================处理第2波次无人机===========================================
 
@@ -1397,10 +1531,10 @@ if __name__ == "__main__":
 
 
 
-    plot_positions(first_sorted_dms, data['second_uavs'],
+    plot_positions(first_sorted_dms, second_sorted_dms,
                    data['enemy_approx'], meet_last_enemy_dms, chase_enemy_dms,
                    last_point, last_begin_turn_dms, after_turning_last_uav_dms, chase_uav_dms,
-                   meet_first_uav_dms, after_turn_first_uav_dms, placements, data['basepoint'])
+                   meet_first_uav_dms, after_turn_first_uav_dms, meet_second_uav_dms, after_turn_second_uav_dms,placements, data['basepoint'])
 
 
 
