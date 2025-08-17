@@ -1285,7 +1285,7 @@ def uav_turned_specific_position(enemy_center, enemy_speed, uav_center, time_inf
     output_enemy_timed_position = []
     uav_lat, uav_lon, uav_alt = GeodeticConverter.decimal_dms_to_degrees(uav_center)
     enemy_lat, enemy_lon, enemy_alt = GeodeticConverter.decimal_dms_to_degrees(enemy_center)
-    enemy_bearing = converter.calculate_flight_bearing(uav_lat, uav_lon, enemy_lat, enemy_lon)
+    enemy_bearing = converter.calculate_flight_bearing(enemy_lat, enemy_lon, uav_lat, uav_lon)
 
     #改变数值，由小到大排序，默认False
     time_info = sorted(time_info)
@@ -1296,17 +1296,18 @@ def uav_turned_specific_position(enemy_center, enemy_speed, uav_center, time_inf
         uav_tag = "first"
     elif len(time_info) == second_uav_num:
         uav_tag = "second"
-
+    print(uav_tag)
     #如果是第n波次，占位按照第n波次的执行
     if uav_tag == "first":
         position_section = placements_dms[:first_uav_num]
     elif uav_tag == "second":
-        position_section = placements_dms[first_uav_num:]
+        position_section = placements_dms[first_uav_num+1:]
 
-    # 遍历每个时间差，计算每一个架无人机应到过顶占位的位置
+    # 遍历每个时间，计算每一架无人机应到过顶占位的位置
     for position_sec, time in zip(position_section, time_info):# 使用zip将两个列表中的项一一配对（占位结构和时间）
         pos_lat, pos_lon, pos_alt = GeodeticConverter.decimal_dms_to_degrees(position_sec)
 
+        #print("第一架的占位位置：",pos_lat, pos_lon, pos_alt)
         # 计算敌群行动距离
         enemy_action_distance = enemy_speed * time
 
@@ -1415,7 +1416,7 @@ def fine_tuning(uav_speed, enemy_speed, acceleration,bearing_enemy, enemy_center
 def plot_positions_with_centers(uav_first_geo_init, uav_second_geo_init,
                                 enemy_center_init, last_uav,
                                 meet_last_enemy_center, meet_last_uav_point,
-                                after_turn_last_uav, chase_last_point, chase_enemy_center,converter):
+                                after_turn_last_uav, chase_last_point, chase_enemy_center, output_each_enemy_pos1, output_each_enemy_pos2,converter):
 
     #==================================点位转坐标=============================================
     # 初始第1波点位 uav_dms, enemy_dms,
@@ -1613,7 +1614,7 @@ def create_uav_scatter(points, color):
 def plot_positions(uav_first_geo_init, uav_second_geo_init,
                     enemy_center_init, meet_last_enemy_center, chase_enemy_center,
                     last_uav, meet_last_uav_point, after_turn_last_uav, chase_last_point,
-                    meet_first_uav_point, after_turn_first_uav, meet_second_uav_point, after_turn_second_uav, corners, placements_dms, uav_base):
+                    meet_first_uav_point, after_turn_first_uav, meet_second_uav_point, after_turn_second_uav, output_each_enemy_pos1,output_each_enemy_pos2,corners, placements_dms, uav_base):
 
 
     # ==================================点位转坐标=============================================
@@ -1664,6 +1665,7 @@ def plot_positions(uav_first_geo_init, uav_second_geo_init,
     # ==================================最后一架无人机============================================
     last_lat, last_lon, last_alt = GeodeticConverter.decimal_dms_to_degrees(last_uav)  # 开始
     meet_last_lat, meet_last_lon, meet_last_alt = GeodeticConverter.decimal_dms_to_degrees(meet_last_uav_point)  # 刚与敌群相遇时的点位
+    print("中心相遇点位", meet_last_lat, meet_last_lon, meet_last_alt)
     after_turn_last_lat, after_turn_last_lon, after_turn_last_alt = GeodeticConverter.decimal_dms_to_degrees(after_turn_last_uav)  # 转弯之后的点位
     chase_last_lat, chase_last_lon, chase_last_alt = GeodeticConverter.decimal_dms_to_degrees(chase_last_point)  # 追击后的点位
 
@@ -1696,6 +1698,19 @@ def plot_positions(uav_first_geo_init, uav_second_geo_init,
         f"Turn_second_UAV{i + 1}": [lat, lon, alt]  # 键名为 "Turn_first_UAVi"，值为 [纬度, 经度, 海拔]
         for i, (lat, lon, alt) in enumerate(zip(after_turn_second_lat, after_turn_second_lon, after_turn_second_alt))
     }
+    # ==================================追击位置============================================
+    chase_first_uav_lat, chase_first_uav_lon, chase_first_alt = geo_to_degrees(output_each_enemy_pos1)
+    chase_second_uav_lat, chase_second_uav_lon, chase_second_alt = geo_to_degrees(output_each_enemy_pos2)
+    chase_first_uav_positions = {
+        f"chase_first_UAV{i + 1}": [lat, lon, alt]  # 键名为 "Meet_first_UAVi"，值为 [纬度, 经度, 海拔]
+        for i, (lat, lon, alt) in enumerate(zip(chase_first_uav_lat, chase_first_uav_lon, chase_first_alt ))
+    }
+
+    # 使用 zip 函数将三个列表打包
+    chase_second_uav_positions = {
+        f"Tchase_second_UAV{i + 1}": [lat, lon, alt]  # 键名为 "Turn_first_UAVi"，值为 [纬度, 经度, 海拔]
+        for i, (lat, lon, alt) in enumerate(zip(chase_second_uav_lat, chase_second_uav_lon, chase_second_alt))
+    }
 
     all_lons, all_lats, all_alts = [], [], []
     points = {
@@ -1727,11 +1742,14 @@ def plot_positions(uav_first_geo_init, uav_second_geo_init,
     scatter_points_4 = create_uav_scatter(turn_first_uav_positions, color='yellow')  # 第一波次无人机转弯之后
     scatter_points_5 = create_uav_scatter(meet_second_uav_positions, color='gray')  # 第二波次无人机与敌群相遇
     scatter_points_6 = create_uav_scatter(turn_second_uav_positions, color='brown')  # 第二波次无人机转弯之后
+    scatter_points_7 = create_uav_scatter(chase_first_uav_positions, color='purple')  # 第二波次无人机转弯之后
+    scatter_points_8 = create_uav_scatter(chase_second_uav_positions, color='black')  # 第二波次无人机转弯之后
 
-    scatter_points = scatter_points_0 + scatter_points_1 + scatter_points_2 + scatter_points_3 + scatter_points_4 + scatter_points_5 + scatter_points_6#合并字典
+
+    scatter_points = scatter_points_0 + scatter_points_1 + scatter_points_2 + scatter_points_3 + scatter_points_4 + scatter_points_5 + scatter_points_6+ scatter_points_7 + scatter_points_8#合并字典
 
     #存储所有点，为了找坐标端点
-    merged_dict = {**points, **first_uav_positions, **second_uav_positions}#解压
+    merged_dict = {**points, **first_uav_positions, **second_uav_positions, **chase_first_uav_positions, **chase_second_uav_positions}#解压
     # print("merged_dict位置字典", merged_dict)
     # 创建空的列表来分别存储纬度、经度和高度
     lats = []
@@ -1803,7 +1821,7 @@ def plot_positions(uav_first_geo_init, uav_second_geo_init,
     all_lats.extend(lats)
     all_lons.extend(lons)
     all_alts.extend(alts)
-    print(all_lons)
+    # print(all_lons)
     # print("显示最大最小值:",min(all_lons), max(all_lons), min(all_lats), max(all_lats))
 
     # 绘制图形
@@ -1884,7 +1902,8 @@ if __name__ == "__main__":
 
     meet_first_uav_dms, after_turn_first_uav_dms, first_uav_time_info, bearing_enemy, meet_single_time1, result1 = first_uav_move_strategy(data['minimum_speed'], uav_deceleration_speed, data['maximum_speed'], data['speed'], first_uav_sorted, first_uav_center,
                              max_enemy_dms, 1000, acceleration, time_detect)
-    print("第一波次每架无人机从开始到转弯结束的编号、时间、位置：", result1)
+
+    print("第一波次每架无人机从开始到转弯结束的编号、时间、位置：", result1[0][2])
     # print("第一波次转完之后的时间", first_uav_time_info[4])
     # =================================处理第2波次无人机===========================================
 
@@ -1895,6 +1914,7 @@ if __name__ == "__main__":
     # print("第二波次去除最后一架之后的排序:", remain_second_uav_sorted, remain_second_sorted_dms)
     meet_second_uav_dms, after_turn_second_uav_dms, second_uav_time_info, bearing_enemy2, meet_single_time2, result2= first_uav_move_strategy(data['minimum_speed'], uav_deceleration_speed, data['maximum_speed'], data['speed'], remain_second_uav_sorted, second_uav_center,
                              max_enemy_dms, 1000, acceleration, time_detect)
+
     print("第二波次每架无人机从开始到转弯结束的编号、时间、位置：", result2)
     #占位策略，得到无人机上的占位信息，便于追击
     front_dms, corners, placements_dms = generate_placements_with_bearing(
@@ -1916,8 +1936,11 @@ if __name__ == "__main__":
     print("第二波次每一架无人机转弯后应追击的占位", output_each_enemy_pos2)
     time_uav_info = generate_uav_time_info(last_time_info, first_uav_time_info, second_uav_time_info)
     print("总时间信息表！！！！！:", time_uav_info) #包括时间，纬度/经度/海拔
-
-
+    #球面距离calculate_spherical_distance
+    lat_1, lon_1, alt_1 = GeodeticConverter.decimal_dms_to_degrees(result1[0][2])
+    lat_11, lon_11, alt_11 = GeodeticConverter.decimal_dms_to_degrees(output_each_enemy_pos2[0])
+    distance111 = converter.calculate_spherical_distance( lat_1, lon_1, alt_1, lat_11, lon_11, alt_11 )
+    print("distancedistancedistance:", result1[0][2], output_each_enemy_pos2[0], distance111)
 
 
 
@@ -1926,7 +1949,7 @@ if __name__ == "__main__":
     plot_positions(first_sorted_dms, remain_second_sorted_dms,
                    data['enemy_approx'], meet_last_enemy_dms, chase_enemy_dms,
                    last_point, last_begin_turn_dms, after_turning_last_uav_dms, chase_uav_dms,
-                   meet_first_uav_dms, after_turn_first_uav_dms, meet_second_uav_dms, after_turn_second_uav_dms,corners, placements_dms, data['basepoint'])
+                   meet_first_uav_dms, after_turn_first_uav_dms, meet_second_uav_dms, after_turn_second_uav_dms,output_each_enemy_pos1,output_each_enemy_pos2, corners,placements_dms, data['basepoint'])
 
 
 
