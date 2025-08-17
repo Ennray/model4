@@ -1889,6 +1889,7 @@ if __name__ == "__main__":
     print("第一波次每架无人机从开始到转弯结束的编号、时间、位置：", result1[0][2])
     # print("第一波次转完之后的时间", first_uav_time_info[4])
 
+
     # =================================处理第2波次无人机===========================================
 
     remain_second_uav_sorted = second_uav_sorted[1:]
@@ -1934,7 +1935,7 @@ if __name__ == "__main__":
     #                             uav_start_speed = 100, uav_max_speed = data['maximum_speed'],  a_acc = acceleration, a_dec = acceleration, pos_tol=3,
     #                             vel_tol=1, dt = 1, k_lead = 0.6, distance_margin = 20, max_steps = 100000)
 
-    chase_info = pursue_moving_point(output_each_enemy_pos1[0], placements_dms[0], bearing_enemy, data['speed'], uav_start_speed = 100, uav_max_speed = data['maximum_speed'],  a_acc = acceleration, a_dec = acceleration,
+    chase_info = pursue_moving_point(result1[0][2], output_each_enemy_pos1[0], bearing_enemy, data['speed'], uav_start_speed = 100, uav_max_speed = data['maximum_speed'],  a_acc = acceleration, a_dec = acceleration,
                                      pos_tol=30, vel_tol=1, dt = 0.05, k_lead = 0.6, distance_margin = 20, max_steps = 100000)
     print("得到追击信息表:", chase_info)
 
