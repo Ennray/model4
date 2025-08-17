@@ -34,29 +34,29 @@ R = 6371000  # 地球半径，单位：米
 
 
 
-#对第1批或第2批uav进行排序，由敌群的近到远或由远到近
+# 对第1批或第2批uav进行排序，由敌群的近到远或由远到近
 def uav_sorted_distances_points(uav_points, uav_center, enemy_center, reverse):
     first = []
     first_sorted_dms = []
     i = 0
 
-    #将我方中心，敌方中心都转度数
+    # 将我方中心，敌方中心都转度数
     uav_center_lat, uav_center_lon, uav_center_alt = GeodeticConverter.decimal_dms_to_degrees(uav_center)
     enemy_center_lat, enemy_center_lon, enemy_center_alt = GeodeticConverter.decimal_dms_to_degrees(enemy_center)
 
-    #计算整体飞行方向
+    # 计算整体飞行方向
     flight_bearing = converter.calculate_flight_bearing(uav_center_lat, uav_center_lon, enemy_center_lat,enemy_center_lon)
 
     for point in uav_points:
 
         lat, lon ,alt = GeodeticConverter.decimal_dms_to_degrees(point)
 
-        #每架无人机的飞行方向，并将其投影到整体移动方向上（适用于几百公里内）
+        # 每架无人机的飞行方向，并将其投影到整体移动方向上（适用于几百公里内）
         uav_bearing = converter.calculate_flight_bearing(lat, lon, enemy_center_lat, enemy_center_lon)
         delta_angle = abs(flight_bearing - uav_bearing)
         delta_angle = min(delta_angle, 360 - delta_angle)
 
-        #计算每架无人机飞行球面距离
+        # 计算每架无人机飞行球面距离
         dist = converter.calculate_spherical_distance(lat, lon, alt, enemy_center_lat, enemy_center_lon, alt)
         projected_dist = dist * math.cos(math.radians(delta_angle))
 
@@ -69,17 +69,18 @@ def uav_sorted_distances_points(uav_points, uav_center, enemy_center, reverse):
 
     return first_sorted, first_sorted_dms
 
-#计算第1波次或第2波次无人机中心
+
+# 计算第1波次或第2波次无人机中心
 def calculate_center_dms(uav_dms):
 
     decimal_positions = []
 
-    #遍历每个函数，得到度数分量
+    # 遍历每个函数，得到度数分量
     for dms_pos in uav_dms:
         lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(dms_pos)
         decimal_positions.append((lat, lon, alt))
 
-    #对所有分量求平均值
+    # 对所有分量求平均值
     lats = [p[0] for p in decimal_positions]
     lons = [p[1] for p in decimal_positions]
     alts = [p[2] for p in decimal_positions]
@@ -88,15 +89,15 @@ def calculate_center_dms(uav_dms):
     center_lon = np.mean(lons)
     center_alt = np.mean(alts)
 
-    #分量转local再转dms
+    # 分量转local再转dms
     uav_center_dms = converter.local_to_geodetic_dms(converter.geodetic_to_local(center_lat, center_lon, center_alt))
 
     return uav_center_dms
 
 
-#聚类分析有多少个纵队并分别记录
+# 聚类分析有多少个纵队并分别记录
 def cluster_uavs_by_latitude(second_points, converter, eps = 20):
-    #先将second_point转为坐标系
+    # 先将second_point转为坐标系
     local_coords = []
     for dms in second_points:
         lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(dms)
@@ -123,7 +124,7 @@ def cluster_uavs_by_latitude(second_points, converter, eps = 20):
     return result #返回一个二元数组
 
 
-#计算敌群最远边界信息，获得敌机边界四个角的信息
+# 计算敌群最远边界信息，获得敌机边界四个角的信息
 def get_enemy_edges(enemy_center, lat_range, lon_range):
     ne = [lon_range[1], lat_range[1], enemy_center[2]]  # 北 + 东
     se = [lon_range[1], lat_range[0], enemy_center[2]]  # 南 + 东
@@ -132,25 +133,25 @@ def get_enemy_edges(enemy_center, lat_range, lon_range):
     return ne, se, nw, sw
 
 
-
+# 将dms坐标转化为local
 def to_local(pos_dms, converter):
     lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(pos_dms)
     return converter.geodetic_to_local(lat, lon, alt)
 
 
-#计算第1波无人机距离敌群的最远距离
+# 计算第1波无人机距离敌群的最远距离
 def max_distance(basepoint, enemy_center, lat_range, lon_range):
-    #敌方四个角dms格式
+    # 敌方四个角dms格式
     en = [lon_range[1], lat_range[1], enemy_center[2]]  # 东北
     es = [lon_range[1], lat_range[0], enemy_center[2]]  # 东南
     wn = [lon_range[0], lat_range[1], enemy_center[2]]  # 西北
     ws = [lon_range[0], lat_range[0], enemy_center[2]]  # 西南
     corners = [ws, wn, es, en]
 
-    #转换base为度数
+    # 转换base为度数
     base_lat, base_lon, base_alt = GeodeticConverter.decimal_dms_to_degrees(basepoint)
 
-    #初始化最小最大距离
+    # 初始化最小最大距离
     max_dist = -float('inf')
     min_dist = float('inf')
     max_dms = None
@@ -160,7 +161,7 @@ def max_distance(basepoint, enemy_center, lat_range, lon_range):
         lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(corner_dms)
         dist = converter.calculate_spherical_distance(base_lat, base_lon, base_alt, lat, lon, alt)
 
-        #有最大或最小的的就记录
+        # 有最大或最小的的就记录
         if dist > max_dist:
             max_dist = dist
             max_dms = corner_dms
@@ -172,14 +173,14 @@ def max_distance(basepoint, enemy_center, lat_range, lon_range):
     return max_dist, max_dms, min_dist, min_dms
 
 
-#求解探测到敌方最后沿时的时间
+# 求解探测到敌方最后沿时的时间
 def function_last_detection_time(uav_speed, enemy_speed, max_distances, detect_distances):
     relative_speed = uav_speed + enemy_speed
     time = (max_distances - detect_distances ) / relative_speed
     return time
 
 
-#计算最后一架无人机需要飞出的总距离(暂时用不上)
+# 计算最后一架无人机需要飞出的总距离(暂时用不上)
 def last_uav_distance(basepoint, uavpoint, uav_speed, enemy_speed, max_distances, detect_distances, converter):
     pos_base = to_local(basepoint, converter)
 
@@ -189,7 +190,7 @@ def last_uav_distance(basepoint, uavpoint, uav_speed, enemy_speed, max_distances
     return dis_last_uav
 
 
-#敌我同时推进，每 step_time 秒更新一次位置，重建 converter。
+# 敌我同时推进，每 step_time 秒更新一次位置，重建 converter。
 def simulate_relative_motion(uav_start, enemy_start, basepoint, uav_speed, enemy_speed, total_time, step_time=10):
     steps = total_time // step_time
     delta_uav = uav_speed * step_time
@@ -231,18 +232,19 @@ def simulate_relative_motion(uav_start, enemy_start, basepoint, uav_speed, enemy
     return converter, base_positions, enemy_positions
 
 
+# 计算转弯后的位置（有转弯度数）
 def calculate_turning_position_with_bearing(lat, lon, alt, turning_radius, angle_deg, bearing_deg, direction='left'):
 
-    # Step 1: 计算圆心方向（偏移航向±90度）
+    # 计算圆心方向（偏移航向±90度）
     offset_bearing = (bearing_deg + (90 if direction == 'left' else -90)) % 360
 
-    # Step 2: 计算圆心点
+    # 计算圆心点
     center_point = distance(meters=turning_radius).destination(Point(lat, lon), bearing=offset_bearing)
 
-    # Step 3: 计算终点方向：从圆心开始，按方向旋转角度
+    # 计算终点方向：从圆心开始，按方向旋转角度
     arc_end_bearing = (offset_bearing + (angle_deg if direction == 'left' else -angle_deg)) % 360
 
-    # Step 4: 沿圆弧从圆心出发，回到圆周上
+    # 沿圆弧从圆心出发，回到圆周上
     end_point = distance(meters=turning_radius).destination(center_point, bearing=arc_end_bearing)
 
     # print("无人机方向，偏移", {bearing_deg}, offset_bearing)
@@ -271,7 +273,7 @@ def after_turn_position(turning_radius, uav_meet_dms, angle_deg, bearing_deg, di
     return after_turning_uav_dms
 
 
-#计算转弯后进行追赶的时间距离及敌群移动距离
+# 计算转弯后进行追赶的时间距离及敌群移动距离
 def after_turn_chase(uav_reltime_speed, uav_max_speed, enemy_speed, turning_time, turning_radius, acceleration):
 
     uav_max_speed = 400
@@ -304,86 +306,86 @@ def after_turn_chase(uav_reltime_speed, uav_max_speed, enemy_speed, turning_time
     return chase_time_val, uniform_time_val, chase_distance_val, distance_enemy_chase_val
 
 
-#纵队最后一架无人机的飞行策略
+# 纵队最后一架无人机的飞行策略
 def last_uav_move_strategy(uav_speed, uav_max_speed, uav_deceleration_speed, enemy_speed, max_distances, detect_distances, uavpoint, basepoint, min_enemy_dms, acceleration):
 
     last_time_info = []
-    #飞行时间估计（第1波次无人机将敌方全纳入视场时间）
+    # 飞行时间估计（第1波次无人机将敌方全纳入视场时间）
     time = function_last_detection_time(uav_speed, enemy_speed, max_distances, detect_distances)
     last_time_info.append(time) #匀速时间点
 
-    #匀加速时间与加速距离
+    # 匀加速时间与加速距离
     time_acc = (uav_max_speed - uav_speed) / acceleration  # 得到加速时间
     distance_acc = (uav_max_speed ** 2 - uav_speed ** 2) / (2 * acceleration)  # 得到加速期间前进的距离
     last_time_info.append(time_acc + last_time_info[0]) #加速时间点
 
-    #加速前已经飞行距离
+    # 加速前已经飞行距离
     total_distances = uav_speed * time + distance_acc
 
-    #当前无人机位置
+    # 当前无人机位置
     lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(uavpoint)
 
-    #敌群中心位置
+    # 敌群中心位置
     enemy_lat, enemy_lon, enemy_alt = GeodeticConverter.decimal_dms_to_degrees(min_enemy_dms)
 
-    #求飞行方向
+    # 求飞行方向
     bearing =  converter.calculate_flight_bearing(lat, lon, enemy_lat, enemy_lon)
     print(f"<UNK> = {bearing:.6f}")
     bearing_enemy = converter.calculate_flight_bearing(enemy_lat, enemy_lon, lat, lon)
 
-    #球面预测加速后飞行点
+    # 球面预测加速后飞行点
     new_lat, new_lon, new_alt = converter.calculate_destination_point(
         lat, lon, alt, bearing, total_distances, 0)
 
-    #敌群位置更新（反方向飞行）
+    # 敌群位置更新（反方向飞行）
     enemy_movedis = enemy_speed * (time + time_acc)
     new_enemy_lat, new_enemy_lon, new_enemy_alt = converter.calculate_destination_point(
         enemy_lat, enemy_lon, enemy_alt, bearing_enemy, enemy_movedis, 0)
 
-    #计算此时相对距离
+    # 计算此时相对距离
     distance_move = converter.calculate_spherical_distance(new_lat, new_lon, new_alt, new_enemy_lat, new_enemy_lon, new_enemy_alt)
 
     safety_distance = 1000
 
-    #计算减速时间和减速距离
+    # 计算减速时间和减速距离
     deceleration_time = (uav_max_speed - uav_deceleration_speed) / acceleration
     uav_deceleration_distence = uav_max_speed * deceleration_time - 0.5 * acceleration *deceleration_time **2
 
-    #匀速减速再相遇所需要的总时间 = （不减速时的距离 - 安全距离 + 不减速时的距离与考虑减速时的距离之差） / 相对速度
+    # 匀速减速再相遇所需要的总时间 = （不减速时的距离 - 安全距离 + 不减速时的距离与考虑减速时的距离之差） / 相对速度
     time_move = (distance_move - safety_distance + uav_max_speed * deceleration_time - uav_deceleration_distence) / (uav_max_speed + enemy_speed)
 
-    #无人机最大速度匀速前进距离
+    # 无人机最大速度匀速前进距离
     distance_uav = uav_max_speed * (time_move - deceleration_time)
 
-    #匀速时间
+    # 匀速时间
     time_uniform = time_move - deceleration_time
     last_time_info.append(time_uniform + last_time_info[1]) #继续匀速得到时间点
     last_time_info.append(deceleration_time + last_time_info[2]) #得到减速时间点也是转弯时间点
 
-    #敌方移动总距离
+    # 敌方移动总距离
     distance_enemy = enemy_speed * time_move
 
-    #相遇时敌机中心位置更新（反方向飞行）
+    # 相遇时敌机中心位置更新（反方向飞行）
     meet_enemy_lat, meet_enemy_lon, meet_enemy_alt = converter.calculate_destination_point(
         new_enemy_lat, new_enemy_lon, new_enemy_alt, bearing_enemy, distance_enemy, 0
     )
 
-    #在减速到达敌方前就爬升至敌方高度上方
+    # 在减速到达敌方前就爬升至敌方高度上方
     angle = converter.calculate_climb_angle(new_alt, new_enemy_alt + safety_distance, distance_uav)
     angle_rad = math.radians(angle)
 
-    #开始转弯的点位（相遇位置）
+    # 开始转弯的点位（相遇位置）
     uav_meet_lat, uav_meet_lon, uav_meet_alt, distance_uav_val= converter.calculate_destination_with_climb_angle(new_lat, new_lon, new_alt, bearing, distance_uav, angle)
 
     # 当前假设转弯180度
     angle_deg = 180
     angle_deg_rad = math.radians(angle_deg)
 
-    #计算转弯半径
+    # 计算转弯半径
     turning_radius = (uav_deceleration_speed**2)/ (GRAVITY_EARTH * math.tan(math.radians(45))) #  (uav_deceleration_speed**2) * (math.cos(angle_rad)**2))
-    print("半径", turning_radius)
+    # print("半径", turning_radius)
     turning_time = (angle_deg_rad * turning_radius) / uav_deceleration_speed
-    print("转弯时间", turning_time)
+    # print("转弯时间", turning_time)
     last_time_info.append(turning_time + last_time_info[3])
 
     #转弯时我方无人机及敌方无人机转dms
@@ -394,79 +396,75 @@ def last_uav_move_strategy(uav_speed, uav_max_speed, uav_deceleration_speed, ene
 
 
     bearing_rel =  converter.calculate_flight_bearing(uav_meet_lat, uav_meet_lon, enemy_lat, enemy_lon)
-    print("输出两个坐标",uav_meet_lon,enemy_lon)
-    print("开始转弯时无人机的位置：", last_begin_turn_dms)
-    print("最开始敌群最近位置:",min_enemy_dms)
-    print("航向角：", bearing_rel)
+    # print("最开始敌群最近位置:",min_enemy_dms)
 
-    #得到转弯angle_deg后的无人机dms位置
+    # 得到转弯angle_deg后的无人机dms位置
     after_turning_last_uav_dms = after_turn_position(turning_radius, last_begin_turn_dms, angle_deg, bearing_rel, direction = 'right')
     turn_uav_lat, turn_uav_lon, turn_uav_alt = GeodeticConverter.decimal_dms_to_degrees(after_turning_last_uav_dms)
 
-    #得到转弯后追击敌方时所需要花费的时间距离等
+    # 得到转弯后追击敌方时所需要花费的时间距离等
     chase_time_val, uniform_time_val, chase_distance_val, distance_enemy_chase_val = after_turn_chase(
         uav_deceleration_speed, uav_max_speed, enemy_speed, turning_time, turning_radius, acceleration)
 
-    #得到追击到敌方时敌我两方位置
+    # 得到追击到敌方时敌我两方位置
     chase_enemy_lat, chase_enemy_lon, chase_enemy_alt = converter.calculate_destination_point(
         meet_enemy_lat, meet_enemy_lon, meet_enemy_alt, bearing_enemy, distance_enemy_chase_val, 0)
 
     chase_last_uav_lat, chase_last_uav_lon, chase_last_uav_alt = converter.calculate_destination_point(
         meet_enemy_lat, meet_enemy_lon, meet_enemy_alt + safety_distance, bearing_enemy, distance_enemy_chase_val, 0)
 
-    #转弯后此时敌我两方的经纬度位置
+    # 转弯后此时敌我两方的经纬度位置
     chase_enemy_dms = converter.local_to_geodetic_dms(
          converter.geodetic_to_local(chase_enemy_lat, chase_enemy_lon, chase_enemy_alt))
     chase_uav_dms = converter.local_to_geodetic_dms(
         converter.geodetic_to_local(chase_last_uav_lat, chase_last_uav_lon, chase_last_uav_alt))
-    #追击后的时间
+    # 追击后的时间
     after_chase_time = time + time_move + turning_time
-
-
 
     return last_begin_turn_dms, after_turning_last_uav_dms, chase_uav_dms, meet_last_enemy_dms, chase_enemy_dms, turning_time, chase_time_val, last_time_info
 
 
-
-#计算第一批无人机与敌群相遇的时间
+# 计算第一批无人机与敌群相遇的时间
 def first_meet_enemy_time(uav_sorted, max_enemy_dms, uav_speed, uav_deceleration_speed, enemy_speed, safe_distence, acceleration):
     meet_time_info = []
-    #敌机中心经纬度转度数
+    # 敌机中心经纬度转度数
     e_lat, e_lon, e_alt = GeodeticConverter.decimal_dms_to_degrees(max_enemy_dms)
 
-    #对于已经排序的无人机
+    # 对于已经排序的无人机
     for i,uav in enumerate(uav_sorted):
 
-        #取排序无人机的第一个元素
+        # 取排序无人机的第一个元素
         uav_pos = uav[3]
-        #记录编号
+        # 记录编号
         uav_number = uav [1]
         #print("uav_number",uav_number)
 
-        #无人机直角坐标转经纬度再转度数
+        # 无人机直角坐标转经纬度再转度数
         lat, lon ,alt = GeodeticConverter.decimal_dms_to_degrees(uav_pos)
 
-        #快到转弯点时要减速，求减速时间和距离
+        # 快到转弯点时要减速，求减速时间和距离
         deceleration_time = (uav_speed - uav_deceleration_speed) / acceleration
         uav_deceleration_distence = uav_speed * deceleration_time - 0.5 * acceleration * deceleration_time ** 2
 
-        #利用球面坐标系计算无人机与敌机之间的初始距离
+        # 利用球面坐标系计算无人机与敌机之间的初始距离
         distance_between_uav_enemy = converter.calculate_spherical_distance(lat, lon, e_alt, e_lat, e_lon, e_alt)
         #print("无人机与敌机之间的初始距离", distance_between_uav_enemy)
-        #求匀速前行时的时间以及总时间
+
+        # 求匀速前行时的时间以及总时间
         uniform_time = (distance_between_uav_enemy - uav_deceleration_distence - enemy_speed * deceleration_time) / (enemy_speed + uav_speed)
         total_time = uniform_time + deceleration_time
 
-        #无人机移动距离
+        # 无人机移动距离
         distance_uav = uav_speed * uniform_time + uav_deceleration_distence
 
         # 添加到meet_time列表中
         meet_time_info.append((uav_number, total_time, uniform_time, distance_uav))
     # print("meet_time_all:",meet_time_info)
+
     return meet_time_info
 
 
-#第1波次无人机飞行策略
+# 第1波次或第2波次跟随飞行无人机飞行策略
 def first_uav_move_strategy(uav_speed, uav_dec_speed, uav_max_speed, enemy_speed, first_sorted_uav, first_uav_center, max_enemy_dms, safety_distance, acceleration, time_detect):
     first_uav_time_info = []
     start_first_uav_dms = []
@@ -483,11 +481,11 @@ def first_uav_move_strategy(uav_speed, uav_dec_speed, uav_max_speed, enemy_speed
     bearing = converter.calculate_flight_bearing(center_lat, center_lon, enemy_lat, enemy_lon)
     bearing_enemy = converter.calculate_flight_bearing(enemy_lat, enemy_lon, center_lat, center_lon)
 
-    #得到将敌方纳入视场内时我方和敌方分别移动距离
+    # 得到将敌方纳入视场内时我方和敌方分别移动距离
     distance_uav = uav_speed * time_detect
     distance_enemy = enemy_speed * time_detect
 
-    #更新我方将敌方纳入视场时位置
+    # 更新我方将敌方纳入视场时位置
     for i,uav in enumerate(first_sorted_uav):
         # 排序后无人机的dms坐标
         first_uav = uav[3]
@@ -501,23 +499,26 @@ def first_uav_move_strategy(uav_speed, uav_dec_speed, uav_max_speed, enemy_speed
         start_first_uav = converter.local_to_geodetic_dms(
                     converter.geodetic_to_local(new_uav_lat, new_uav_lon, new_uav_alt))
         start_first_uav_dms.append((uav[0] - distance_uav, uav[1], uav[2],start_first_uav))
-       # print("start_first_uav_dmsstart_first_uav_dms", start_first_uav_dms)
-    #更新敌方被纳入视场时位置
+        # print("start_first_uav_dmsstart_first_uav_dms", start_first_uav_dms)
+
+    # 更新敌方被纳入视场时位置
+
     start_enemy_lat, start_enemy_lon, start_enemy_alt = converter.calculate_destination_point(
                     enemy_lat, enemy_lon, enemy_alt, bearing_enemy, distance_enemy, 0)
     start_enemy = converter.local_to_geodetic_dms(
                     converter.geodetic_to_local(start_enemy_lat, start_enemy_lon, start_enemy_alt))
 
-    #更新第1波或第2波次无人机中心位置
+    # 更新第1波或第2波次无人机中心位置
     start_center_lat, start_center_lon, start_center_alt = converter.calculate_destination_point(
                     center_lat, center_lon, center_alt, bearing, distance_uav, 0)
     start_center_uav = converter.local_to_geodetic_dms(
                     converter.geodetic_to_local(start_center_lat, start_center_lon, start_center_alt))
 
-    #获得排序后第1波或第2波次无人机相遇时间（含减速到100的时间）
+    # 获得排序后第1波或第2波次无人机相遇时间（含减速到100的时间）
     meet_time_info = first_meet_enemy_time(start_first_uav_dms, start_enemy, uav_speed, uav_dec_speed, enemy_speed, safety_distance, acceleration)
     # print("排序后第1波或第2波次无人机相遇时间:", meet_time_info)
     #从时间信息表中获取平均匀速时间
+
     time2_values = [entry[2] for entry in meet_time_info]
     avg_time2 = sum(time2_values) / len(time2_values)
     time_uniform = avg_time2 + time_detect
@@ -526,14 +527,14 @@ def first_uav_move_strategy(uav_speed, uav_dec_speed, uav_max_speed, enemy_speed
     first_uav_time_info.append(first_uav_time_info[0]) #没有加速，加速时间点=匀速时间点
     first_uav_time_info.append(first_uav_time_info[1]) #没有加速后匀速，加速后匀速时间点=匀速时间点
 
-    #从信息表中获取平均匀速再减速总时间
+    # 从信息表中获取平均匀速再减速总时间
     time1_values = [entry[1] for entry in meet_time_info]
     avg_time1 = sum(time1_values) / len(time1_values)
     time_del = avg_time1 - avg_time2 #减速了几秒的平均时间
 
     first_uav_time_info.append(time_del + first_uav_time_info[2])
 
-    #飞行方向
+    # 飞行方向
     bearing_next = converter.calculate_flight_bearing(start_center_lat, start_center_lon, start_enemy_lat, start_enemy_lon)
     bearing_enemy_next = converter.calculate_flight_bearing(start_enemy_lat, start_enemy_lon, start_center_lat, start_center_lon)
 
@@ -541,13 +542,13 @@ def first_uav_move_strategy(uav_speed, uav_dec_speed, uav_max_speed, enemy_speed
 
     for i,uav in enumerate(start_first_uav_dms):
 
-        #排序后无人机的dms坐标
+        # 排序后无人机的dms坐标
         first_uav = uav[3]
 
-        #dms转度数
+        # dms转度数
         uav_lat, uav_lon, uav_alt = GeodeticConverter.decimal_dms_to_degrees(first_uav)
 
-        #求无人机转弯开始时的点位（输出）
+        # 求无人机转弯开始时的点位（输出）
         meet_uav_lat, meet_uav_lon, meet_uav_alt = converter.calculate_destination_point(
             uav_lat, uav_lon, uav_alt, bearing_next, meet_time_info[i][3], 0)
         meet_uav_dms = converter.local_to_geodetic_dms(converter.geodetic_to_local(meet_uav_lat, meet_uav_lon, meet_uav_alt))
@@ -563,7 +564,7 @@ def first_uav_move_strategy(uav_speed, uav_dec_speed, uav_max_speed, enemy_speed
         turning_time = (angle_deg_rad * turning_radius) / uav_deceleration_speed
 
 
-        #由于每架无人机遇到敌机的时机可能都不一样，所以认为飞行航向是当前无人机的飞行航向，而不再以整体飞行航向作为标准
+        # 由于每架无人机遇到敌机的时机可能都不一样，所以认为飞行航向是当前无人机的飞行航向，而不再以整体飞行航向作为标准
         bearing_rel = converter.calculate_flight_bearing(meet_uav_lat, meet_uav_lon, enemy_lat, enemy_lon)
 
         # 得到转弯angle_deg后的无人机dms位置
@@ -572,7 +573,7 @@ def first_uav_move_strategy(uav_speed, uav_dec_speed, uav_max_speed, enemy_speed
         # print("转弯后的无人机坐标", after_turn_first_uav_dms)
 
         first_uav_time_info.append(turning_time + first_uav_time_info[3])  # 转弯完成时间
-    #每一架无人机从进入视场开始直到转弯结束的时间，仅时间列表，time_detect是开始到进入视场，turning_time是转弯时间
+    # 每一架无人机从进入视场开始直到转弯结束的时间，仅时间列表，time_detect是开始到进入视场，turning_time是转弯时间
     meet_single_time = [(entry[1] + time_detect + turning_time) for entry in meet_time_info]
     result = [(meet_time_info[i][0], meet_single_time[i],after_turn_first_uav_dms[i] ) for i in range(len(meet_single_time))]
     sorted_result = sorted(result, key=lambda x: x[1])
@@ -580,9 +581,7 @@ def first_uav_move_strategy(uav_speed, uav_dec_speed, uav_max_speed, enemy_speed
     return meet_first_uav_dms, after_turn_first_uav_dms, first_uav_time_info, bearing_enemy_next, meet_single_time, sorted_result
 
 
-
-
-#合成时间信息表（3个批次的）
+# 合成时间信息表（3个批次的）
 def generate_uav_time_info (last_uav_time_info, first_uav_time_info, second_uav_time_info):
     time_uav_info = {}
 
@@ -592,6 +591,7 @@ def generate_uav_time_info (last_uav_time_info, first_uav_time_info, second_uav_
     time_uav_info[2] = second_uav_time_info
 
     return time_uav_info
+
 
 # 获取同一时间三波次的状态,1是第一波次，2是第二波次，3是第二波次最后一架（前置转弯）
 def get_uav_state(time, state_end_times, uav_number):
@@ -610,6 +610,8 @@ def get_uav_state(time, state_end_times, uav_number):
             return "追击"
         else:
             return "追击结束，跟随敌群"
+
+
     elif uav_number == 1 or uav_number == 2:
         # 第二波次和第三波次无人机都有4个状态
         accel_act, cruise_act, decel_act, turn_act, chase_act, after_chase = state_end_times
@@ -625,51 +627,51 @@ def get_uav_state(time, state_end_times, uav_number):
             return "追击结束，跟随敌群"
 
 
-#计算坐标点投影值
+# 计算坐标点投影值
 def dot_projection(p, vx, vy):
     return p[0] * vx + p[1] * vy
 
 
-#计算敌群前进方向的前沿边和后沿边，并进行无人机占位
+# 计算敌群前进方向的前沿边和后沿边，并进行无人机占位
 def generate_placements_with_bearing(
     enemy_center_dms, enemy_latrange_dms, enemy_lonrange_dms,
     distance_m,  bearing_deg, exclusion_radius_m, preplaced_dms,
     start_side='left', max_rows=999, first_uav_num = 45, second_uav_num = 30
 ):
-    #先对中心进行转化
+    # 先对中心进行转化
     lat_c, lon_c, alt_c = GeodeticConverter.decimal_dms_to_degrees(enemy_center_dms)
     alt = float(alt_c)
 
-    #得到四个角的角点位置
+    # 得到四个角的角点位置
     en = [enemy_lonrange_dms[1], enemy_latrange_dms[1], enemy_center_dms[2]]  # 东北
     es = [enemy_lonrange_dms[1], enemy_latrange_dms[0], enemy_center_dms[2]]  # 东南
     wn = [enemy_lonrange_dms[0], enemy_latrange_dms[1], enemy_center_dms[2]]  # 西北
     ws = [enemy_lonrange_dms[0], enemy_latrange_dms[0], enemy_center_dms[2]]  # 西南
     corners = [ws, wn, en, es]
 
-    #以西南角为中心，东南角为x轴建立局部坐标系
+    # 以西南角为中心，东南角为x轴建立局部坐标系
     ws_lat, ws_lon, ws_alt = GeodeticConverter.decimal_dms_to_degrees(ws)
     es_lat, es_lon, es_alt = GeodeticConverter.decimal_dms_to_degrees(es)
 
-    #重新以中心建立局部坐标系，便于进行坐标计算
+    # 重新以中心建立局部坐标系，便于进行坐标计算
     converter_enu = GeodeticConverter.GeodeticToLocalConverter(ws_lat, ws_lon, ws_alt, es_lat, es_lon, es_alt)
 
-    #将四个角点转度数
+    # 将四个角点转度数
     corners_degree = []
     for corner in corners:
         corner_lat, corner_lon, corner_alt = GeodeticConverter.decimal_dms_to_degrees(corner)
         corners_degree.append([corner_lat, corner_lon, corner_alt])
 
-    #四个角点的度数转enu坐标系
+    # 四个角点的度数转enu坐标系
     corners_xy = []
     for (la, lo, al) in corners_degree:
         x, y, z = converter_enu.geodetic_to_local(la, lo, al)  # East=x, North=y
         corners_xy.append((x, y))
 
-    #补回首点，便于边遍历
+    # 补回首点，便于边遍历
     corners_xy.append(corners_xy[0])
 
-    #对方向进行规划，如果是-45到45就当作是北方向，依次类推
+    # 对方向进行规划，如果是-45到45就当作是北方向，依次类推
     bearing_front = 0
     if 315 < bearing_deg <= 360 or 0 < bearing_deg <=45 :
         bearing_front = 0
@@ -680,29 +682,28 @@ def generate_placements_with_bearing(
     elif 225 < bearing_deg <= 315 :
         bearing_front = 270
 
-    #飞行前进的方向需要先转弧度制
+    # 飞行前进的方向需要先转弧度制
     theta = math.radians(bearing_front)
     fx, fy = math.sin(theta), math.cos(theta)  #ENU中朝向
     f = (fx, fy) #得到方向向量
 
-    #计算各角点在f方向上的投影
+    # 计算各角点在f方向上的投影
     projs = [fx*px + fy*py for (px, py) in corners_xy[:-1]]  #就是在方向上的投影距离，原点-方向
     Smax = max(projs)
     Smin = min(projs)
-
 
     tol_rel = 1e-4  #假设误差大概是4个数量级
     inters_front, inters_back = [], []
     alpha = 0
     beta = 0
 
-    #扫描四条边,依次对边进行判断，得到前沿边和后沿边
+    # 扫描四条边,依次对边进行判断，得到前沿边和后沿边
     for i in range(4):
         x0, y0 = corners_xy[i]
         x1, y1 = corners_xy[i+1]
         dx, dy = x1 - x0, y1 - y0 #这条边的方向向量
 
-        #根据fx，fy的情况判断应该增加的误差值，如果是fy接近0，说明南北朝向的边可能存在x轴上的误差，如果fx接近0，说明东西朝向的边可能存在y轴上的误差
+        # 根据fx，fy的情况判断应该增加的误差值，如果是fy接近0，说明南北朝向的边可能存在x轴上的误差，如果fx接近0，说明东西朝向的边可能存在y轴上的误差
         if fy < tol_rel and (i == 0 or i == 2):
             alpha = abs(dx)
         elif fx < tol_rel and (i == 1 or i == 3):
@@ -730,47 +731,47 @@ def generate_placements_with_bearing(
     inters_front = [(float(x), float(y), float(z)) for x, y, z in inters_front]
     inters_back = [(float(x), float(y), float(z)) for x, y, z in inters_back]
 
-    #前沿坐标点转dms（好像没用上）
+    # 前沿坐标点转dms（好像没用上）
     front_dms = []
     for inter in inters_front:
         inter_dms = converter_enu.local_to_geodetic_dms(inter)
         inter_dms[2] = alt
         front_dms.append(inter_dms)
 
-    #计算左手位置的方向向量
+    # 计算左手位置的方向向量
     lx, ly = -fy, fx  # 左方向（面向 f 时左手边）
 
-    #如果左手端点的投影值小于右手端点的投影值，那么说明左右端点存反了，重新存放
+    # 如果左手端点的投影值小于右手端点的投影值，那么说明左右端点存反了，重新存放
     if dot_projection(inters_front[0], lx, ly) < dot_projection(inters_front[1], lx, ly):
         inters_front[0], inters_front[1] = inters_front[1], inters_front[0]  # 交换，确保 pL_raw 是左端
     if dot_projection(inters_back[0], lx, ly) < dot_projection(inters_back[1], lx, ly):
         inters_back[0], inters_back[1] = inters_back[1], inters_back[0]
 
     pL_raw, pR_raw = inters_front[0], inters_front[1]
-    #计算方向单位向量u，沿着u走其对应的xy的分量
+    # 计算方向单位向量u，沿着u走其对应的xy的分量
     ux, uy = pR_raw[0] - pL_raw[0], pR_raw[1] - pL_raw[1]
     seg_len = math.hypot(ux, uy)
     if seg_len < 1e-6:
         return [], corners
     ux, uy = ux / seg_len, uy / seg_len
 
-    #设默认冲突半径，如果没有，就默认是探测距离的一半
+    # 设默认冲突半径，如果没有，就默认是探测距离的一半
     if exclusion_radius_m is None:
         exclusion_radius_m = 0.5 * float(distance_m[0])
 
-    #把预放置位置DMS转到ENU，便于冲突检测
+    # 把预放置位置DMS转到ENU，便于冲突检测
     preplaced_local = []
     pre_lat, pre_lon, pre_alt = GeodeticConverter.decimal_dms_to_degrees(preplaced_dms)
     local = converter_enu.geodetic_to_local(pre_lat, pre_lon ,pre_alt)
     preplaced_local.append(local)
 
-    #调用占位策略
+    # 调用占位策略
     placed_local, placements_dms = occupation_strategy(start_side, f, distance_m, first_uav_num, second_uav_num, seg_len, max_rows, inters_front, inters_back, ux, uy,
                                                        converter_enu, preplaced_local, exclusion_radius_m, alt)
     return front_dms, corners, placements_dms
 
 
-
+# 判断当前放置点位与已经放置点位或者提前放置点位是否太近，如果太近小于安全距离，那么当前点位就不再放置新无人机
 def too_close(pt, placed_local, preplaced_local, exclusion_radius_m):
     px, py = pt[0], pt[1]
     # 已放
@@ -784,6 +785,7 @@ def too_close(pt, placed_local, preplaced_local, exclusion_radius_m):
     return False
 
 
+# 计算占位策略，按照第1波次放置在前沿，第2波次放置在后沿的顺序来放，如果第1波次已经放置到后沿，那么第2波次无人机接着放置
 def occupation_strategy(start_side, f, distance_m, first_uav_num, second_uav_num, seg_len, max_rows, inters_front, inters_back, ux, uy,
                         converter_enu, preplaced_local, exclusion_radius_m, alt):
     fx, fy = f[0], f[1]
@@ -794,7 +796,7 @@ def occupation_strategy(start_side, f, distance_m, first_uav_num, second_uav_num
     Smin = min(projs)
     print("最小值:", Smin)
 
-    #放置顺序控制
+    # 放置顺序控制
     left_first = (str(start_side).lower() == 'left')
 
     # 逐行推进
@@ -812,28 +814,28 @@ def occupation_strategy(start_side, f, distance_m, first_uav_num, second_uav_num
     second_replace = False
     min_projection = float('inf')
 
-    #对行数进行遍历，目前并没有限制行数
+    # 对行数进行遍历，目前并没有限制行数
     for r in range(int(max_rows)):
         if uavs_budget <= 0:
             break
 
-        #本行的左右端点（整体向后平移 r*row_offset）
+        # 本行的左右端点（整体向后平移 r*row_offset）
         row_shift_x = f_back[0] * (r * row_offset)
         row_shift_y = f_back[1] * (r * row_offset)
         row_L = (pL_raw[0] + row_shift_x, pL_raw[1] + row_shift_y, 0.0)
         row_R = (pR_raw[0] + row_shift_x, pR_raw[1] + row_shift_y, 0.0)
 
-        #有效可用长度
+        # 有效可用长度
         usable_len = seg_len - u_margin
         if usable_len < step_along - 1e-6:
             break  # 这一行已经放不下任意一点
 
-        #交替放置：k=0,1,2,... 左右向内推进
+        # 交替放置：k=0,1,2,... 左右向内推进
         k_max = int((seg_len - u_margin) // (2.0 * step_along))
         if k_max < 0 :
             break
 
-        #一行中能放置的最大对数
+        # 一行中能放置的最大对数
         for k in range(k_max + 1):
             # 左侧候选
             Lx = row_L[0] + ux * (0.5 * u_margin + k * step_along)
@@ -859,15 +861,14 @@ def occupation_strategy(start_side, f, distance_m, first_uav_num, second_uav_num
             pair = [("left", (Lx, Ly, 0.0)), ("right", (Rx, Ry, 0.0))]
             # print("第", r, "行中的第", k, "个具体坐标是：", pair)
 
-            #如果不是左边先放，那就交换
+            # 如果不是左边先放，那就交换
             if not left_first:
                 pair.reverse()
 
-            #依次尝试放置本对（左右）
+            # 依次尝试放置本对（左右）
             for side, cand in pair:
                 if uavs_budget <= 0:
                     break  # 结束本对，随后结束本行与所有行
-
 
                 if not too_close(cand, placed_local, preplaced_local, exclusion_radius_m):
                     dms = converter_enu.local_to_geodetic_dms(cand)
@@ -885,7 +886,7 @@ def occupation_strategy(start_side, f, distance_m, first_uav_num, second_uav_num
             if uavs_budget <= 0:
                 break
 
-
+    # 如果标志位还是false，说明第2波次不需要接着第1波次放置无人机，第2波次无人机放置在敌群后沿
     if second_replace == False:
         for r in range(int(max_rows)):
             if uavs_budget2 <= 0:
@@ -970,6 +971,7 @@ def speed_situation_time_lower_bound(direction_vector, v0, v_max, v_target, a_ac
     return False, t_acc, 0.0, t_dec, v_peak
 
 
+# 设定追击策略，第1波次无人机相当于追击第1波次占位点，第2波次无人机追击第2波次的对应占位点
 def chase_strategy(occpy_dms, uav_after_turn_dms, first_uav_num, second_uav_num, enemy_bearing_deg, enemy_speed,
                    uav_start_speed=100.0,  # 我方起始空速 m/s
                    uav_max_speed=500.0,  # 我方最大空速 m/s
@@ -998,8 +1000,7 @@ def chase_strategy(occpy_dms, uav_after_turn_dms, first_uav_num, second_uav_num,
     return chase_info
 
 
-
-#追击函数，用于求解转弯后无人机到自己点位的最佳追击航向等
+# 追击函数，用于求解转弯后无人机到自己点位的最佳追击航向等
 def pursue_moving_point(
         uav_dms,  # 我方无人机初始 DMS
         target_dms,  # 敌群西南角（或任一角/中心）初始 DMS
@@ -1017,26 +1018,26 @@ def pursue_moving_point(
         max_steps=200000  # 最长仿真步数（防止死循环）
 ):
 
-    #以当前敌群点为中心建立右手坐标系
+    # 以当前敌群点为中心建立右手坐标系
     converter_point = build_local_converter(target_dms)
 
-    #将当前无人机位置以及目标占位位置转local
+    # 将当前无人机位置以及目标占位位置转local
     uav_lat, uav_lon, uav_alt = GeodeticConverter.decimal_dms_to_degrees(uav_dms)
     uav_local = converter_point.geodetic_to_local(uav_lat, uav_lon, uav_alt)
     target_lat, target_lon, target_alt = GeodeticConverter.decimal_dms_to_degrees(target_dms)
     target_local = converter_point.geodetic_to_local(target_lat, target_lon, target_alt)
 
-    #计算敌群飞行方向的三维向量
+    # 计算敌群飞行方向的三维向量
     f_target, _, _ = bearing_to_basis(enemy_bearing_deg)
     target_speed = float(enemy_speed)
 
-    #估计时间下界，也就是直接沿着敌群方向进行追击时的时间值
+    # 估计时间下界，也就是直接沿着敌群方向进行追击时的时间值
     start_direction_vector = np.linalg.norm(target_local - uav_local)
     tri_sign, time_acc_est, time_cruise_est, time_dec_est, speed_peak = speed_situation_time_lower_bound(
         start_direction_vector, uav_start_speed, uav_max_speed, target_speed, a_acc, a_dec
     )
 
-    #闭环追击
+    # 闭环追击
     t = 0.0
     v = float(uav_start_speed)
     S_uav = 0.0
@@ -1122,8 +1123,7 @@ def pursue_moving_point(
 
 
 
-    # 第三批次（一架无人机）先进行一段加速之后的位置求取，加速结束后再用uav_timed_position计算位置
-
+# 第三批次（一架无人机）先进行一段加速之后的位置求取，加速结束后再用uav_timed_position计算位置
 def third_uav_first_speed_up_timed_position(center_pos, enemy_center, uav_speed, uav_max_speed, acceleration):
     uav_lat, uav_lon, uav_alt = GeodeticConverter.decimal_dms_to_degrees(center_pos)
     enemy_lat, enemy_lon, enemy_alt = GeodeticConverter.decimal_dms_to_degrees(enemy_center)
@@ -1745,26 +1745,26 @@ def plot_positions(uav_first_geo_init, uav_second_geo_init,
         lons.append(b)
         alts.append(c)
 
-    # # 2) 生成标签文本（显示 UAV 编号）
-    # pl_labels = [f"UAV {i + 1}" for i in range(len(placement_lat))]
-    #
-    # # 3) 合并成一个 Scatter3d（效率高）
-    # scatter_points.append(go.Scatter3d(
-    #     x=placement_lon,
-    #     y=placement_lat,
-    #     z=placement_alt,
-    #     mode='markers+text',  # 如果太挤，可改 'markers'
-    #     marker=dict(size=4, color='green'),  # 统一样式；也可用 colorscale
-    #     name='UAV placements',
-    #     text=pl_labels,  # 点旁边显示编号
-    #     textposition="top center",
-    #     hovertemplate=(
-    #         "<b>%{text}</b><br>"  # %{text} 就是 pl_labels
-    #         "Lon: %{x}<br>"
-    #         "Lat: %{y}<br>"
-    #         "Alt: %{z} m<br><extra></extra>"
-    #     )
-    # ))
+    # 2) 生成标签文本（显示 UAV 编号）
+    pl_labels = [f"U {i + 1}" for i in range(len(placement_lat))]
+
+    # 3) 合并成一个 Scatter3d（效率高）
+    scatter_points.append(go.Scatter3d(
+        x=placement_lon,
+        y=placement_lat,
+        z=placement_alt,
+        mode='markers+text',  # 如果太挤，可改 'markers'
+        marker=dict(size=4, color='green'),  # 统一样式；也可用 colorscale
+        name='UAV placements',
+        text=pl_labels,  # 点旁边显示编号
+        textposition="top center",
+        hovertemplate=(
+            "<b>%{text}</b><br>"  # %{text} 就是 pl_labels
+            "Lon: %{x}<br>"
+            "Lat: %{y}<br>"
+            "Alt: %{z} m<br><extra></extra>"
+        )
+    ))
 
     # ===== 多无人机轨迹（三阶段）=====
     # 绘制第二波次无人机的航迹()
