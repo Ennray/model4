@@ -407,7 +407,11 @@
   ],
   "last_uav_meet_time": 1628.2343662824815,
   "last_uav_turn_time": 32.03532963437865,
+<<<<<<< HEAD
+  "last_uav_chase_time": 52.2098466032692,
+=======
   "last_uav_chase_time": 24.700000000000216,
+>>>>>>> 1d6239a0bcac530c4d2469c05d3c5c5db344d410
   "first_uav_turn_point": null,
   "first_uav_after_turn_point": null,
   "first_uav_chase_point": null,
