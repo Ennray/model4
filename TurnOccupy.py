@@ -34,13 +34,13 @@ R = 6371000  # 地球半径，单位：米
 
 
 
-#对第1批或第2批uav进行排序，由敌群的近到远或由远到近
+# 对第1批或第2批uav进行排序，由敌群的近到远或由远到近
 def uav_sorted_distances_points(uav_points, uav_center, enemy_center, reverse):
     first = []
     first_sorted_dms = []
     i = 0
 
-    #将我方中心，敌方中心都转度数
+    # 将我方中心，敌方中心都转度数
     uav_center_lat, uav_center_lon, uav_center_alt = GeodeticConverter.decimal_dms_to_degrees(uav_center)
     enemy_center_lat, enemy_center_lon, enemy_center_alt = GeodeticConverter.decimal_dms_to_degrees(enemy_center)
 
@@ -69,12 +69,12 @@ def uav_sorted_distances_points(uav_points, uav_center, enemy_center, reverse):
 
     return first_sorted, first_sorted_dms
 
-#计算第1波次或第2波次无人机中心
+# 计算第1波次或第2波次无人机中心
 def calculate_center_dms(uav_dms):
 
     decimal_positions = []
 
-    #遍历每个函数，得到度数分量
+    # 遍历每个函数，得到度数分量
     for dms_pos in uav_dms:
         lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(dms_pos)
         decimal_positions.append((lat, lon, alt))
@@ -94,51 +94,24 @@ def calculate_center_dms(uav_dms):
     return uav_center_dms
 
 
-#聚类分析有多少个纵队并分别记录
-def cluster_uavs_by_latitude(second_points, converter, eps = 20):
-    #先将second_point转为坐标系
-    local_coords = []
-    for dms in second_points:
-        lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(dms)
-        local = converter.geodetic_to_local(lat, lon, alt)
-        local_coords.append(local)
-
-    local_coords = np.array(local_coords)
-
-    # 使用局部坐标的x(东西方向）聚类
-    local_x = local_coords[:, 0].reshape(-1, 1)
-    clustering = DBSCAN(eps=eps, min_samples=1).fit(local_x)
-    labels = clustering.labels_  #分别打上标签
-
-    result = []
-    for label in sorted(set(labels)):
-        group = []
-        for idx, l in enumerate(labels):
-            if l == label:
-                local_pos = local_coords[idx]
-                dms = converter.local_to_geodetic_dms(local_pos)
-                group.append(dms)
-        result.append([int(label), group])  # 强制转为int，防止出现 np.int64
-
-    return result #返回一个二元数组
+# 通过纵队情况判断应该提前起飞的无人机数
+def column_judge_last_uav(column, num_of_column, uav_num):
+    last_uav_num = 0
+    judge = uav_num % num_of_column
+    if judge == 0:
+        last_uav_num = column
+    else:
+        last_uav_num = column - 1
+    return last_uav_num
 
 
-#计算敌群最远边界信息，获得敌机边界四个角的信息
-def get_enemy_edges(enemy_center, lat_range, lon_range):
-    ne = [lon_range[1], lat_range[1], enemy_center[2]]  # 北 + 东
-    se = [lon_range[1], lat_range[0], enemy_center[2]]  # 南 + 东
-    nw = [lon_range[0], lat_range[1], enemy_center[2]]  # 北 + 西
-    sw = [lon_range[0], lat_range[0], enemy_center[2]]  # 南 + 西
-    return ne, se, nw, sw
-
-
-
+# 将dms转换为local
 def to_local(pos_dms, converter):
     lat, lon, alt = GeodeticConverter.decimal_dms_to_degrees(pos_dms)
     return converter.geodetic_to_local(lat, lon, alt)
 
 
-#计算第1波无人机距离敌群的最远距离
+# 计算第1波无人机距离敌群的最远距离
 def max_distance(basepoint, enemy_center, lat_range, lon_range):
     #敌方四个角dms格式
     en = [lon_range[1], lat_range[1], enemy_center[2]]  # 东北
@@ -1772,6 +1745,8 @@ if __name__ == "__main__":
     data = dataset()
     acceleration = 80 #加速度减速度均设为80
     uav_deceleration_speed = 100 #假设无人机减速减到100
+    column = 2
+    num_of_column = 15
 
 
     #============================创建局部坐标系================================
@@ -1786,9 +1761,9 @@ if __name__ == "__main__":
         10
     )
     #=======================处理第2波次无人机纵队最后一架无人机===============================
-    #对第2波次无人机进行聚类，得到纵队情况
-    cluster_second_uav = cluster_uavs_by_latitude(data['second_uavs'], converter) #聚类
-    num_columns = len(cluster_second_uav) #得到类别数
+    #对第2波次无人机纵队情况进行分析
+    last_uav_num = column_judge_last_uav(column, num_of_column, data['second_num'])
+
 
     #求第2波次无人机中心
     second_uav_center = calculate_center_dms(data['second_uavs'])
