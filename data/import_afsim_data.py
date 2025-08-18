@@ -40,6 +40,10 @@ def update_dataset():
     second_uavs_1 = afsim_data.get('second_uavs_1', [])
     second_uavs_2 = afsim_data.get('second_uavs_2', [])
     second_uavs_3 = afsim_data.get('second_uavs_3', [])
+    second_uavs = []
+    for grp in (second_uavs_1, second_uavs_2, second_uavs_3):
+        second_uavs.extend(grp)
+
 
     enemy_lonrange = afsim_data.get('enemy_lonrange', [])
     enemy_latrange = afsim_data.get('enemy_latrange', [])
@@ -168,6 +172,23 @@ def update_dataset():
 
     dataset_content += '''    ]
     
+     # 第二批无人机总数量
+    second_num = ''' + str(afsim_data.get('second_num_3', 7) + afsim_data.get('second_num_2', 18) + afsim_data.get('second_num_1', 18)) + '''
+    
+    # 以你原来的格式写入 dataset_content（经度、纬度、高度）
+
+    second_uavs = [
+'''
+    for i, uav in enumerate(second_uavs):
+        lat, lon, alt = uav[0], uav[1], uav[2]
+        if i == len(second_uavs) - 1:
+            dataset_content += f'        [\n            "{lon}",\n            "{lat}",\n            "{alt}"\n        ]\n'
+        else:
+            dataset_content += f'        [\n            "{lon}",\n            "{lat}",\n            "{alt}"\n        ],\n'
+
+    dataset_content += '''    ]
+    
+    
     
     
     return {
@@ -187,12 +208,15 @@ def update_dataset():
         'enemy_latrange': enemy_latrange,
         'first_num': first_num,
         'first_uavs': first_uavs,
+        'second_num': second_num,
+        'second_uavs': second_uavs,
         'second_num_1': second_num_1,
         'second_uavs_1': second_uavs_1,
         'second_num_2': second_num_2,
         'second_uavs_2': second_uavs_2,
         'second_num_3': second_num_3,
         'second_uavs_3': second_uavs_3,
+        
     }
 '''
     
@@ -203,7 +227,7 @@ def update_dataset():
     
     print(f"数据导入完成！")
     print(f"第一批无人机数量: {len(first_uavs)}")
-    print(f"第二批无人机数量: {len(second_uavs_1 + second_uavs_2 + second_uavs_3)}")
+    print(f"第二批无人机数量: {len(second_uavs)}")
 
 if __name__ == "__main__":
     update_dataset()
