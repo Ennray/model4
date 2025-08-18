@@ -330,7 +330,7 @@ def last_uav_move_strategy(uav_speed, uav_max_speed, uav_deceleration_speed, ene
 
 
 
-    return last_begin_turn_dms, after_turning_last_uav_dms, bearing_enemy, meet_last_enemy_dms, last_time_info
+    return last_begin_turn_dms, after_turning_last_uav_dms, bearing_enemy, meet_last_enemy_dms, after_turn_enemy_dms, last_time_info
 
 
 # 计算第一批无人机与敌群相遇的时间
@@ -1759,14 +1759,12 @@ if __name__ == "__main__":
         last_uavs_sorted, last_uavs_dms = uav_sorted_distances_points(second_uavs[i], second_uav_center, data['enemy_approx'], reverse = True)
 
         # 计算最后一架无人机转弯起点位置、转弯180度后位置、追赶位置以及敌方中心在我方无人机开始转弯时位置、被追赶上位置；转弯时间，追逐时间
-        last_begin_turn_dms, after_turning_last_uav_dms, new_bearing_enemy, meet_last_enemy_dms, last_time_info = last_uav_move_strategy(
+        last_begin_turn_dms, after_turning_last_uav_dms, new_bearing_enemy, meet_last_enemy_dms, after_turn_enemy_dms, last_time_info = last_uav_move_strategy(
             data['minimum_speed'], data['maximum_speed'], uav_deceleration_speed, data['speed'],
             max_distance, data['detect_distance'], last_uavs_sorted[0], min_enemy_dms, acceleration)
 
         # 得到转弯后追击敌方时所需要花费的时间距离等
-        new_chase_info = pursue_moving_point(after_turning_last_uav_dms, after_turn_enemy_dms, bearing_enemy,
-                                             enemy_speed, 100, 500, 80, 80, 30, 1, 0.05, 0.6, 20, 100000)
-
+        last_uav_chase_strategy(after_turning_last_uav_dms, after_turn_enemy_dms, new_bearing_enemy, data['speed'], meet_last_enemy_dms)
 
 
 
