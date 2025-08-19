@@ -29,12 +29,12 @@ def save_uav_multi_positions(
         "second_init_point": second_init_point,
         "enemy_init_point":enemy_init_point,
 
-        #==============最后一架无人机移动点位============
+        #==============每个纵队最后一架无人机移动点位============
         "last_uav_turn_point": last_uav_turn_point,
         "last_uav_after_turn_point": last_uav_after_turn_point,
         "last_uav_chase_point": last_uav_chase_point,
 
-        #==============最后一架无人机移动时间============
+        #==============每个纵队最后一架无人机移动时间============
         "last_uav_meet_time": last_uav_meet_time,
         "last_uav_turn_time": last_uav_turn_time,
         "last_uav_chase_time": last_uav_chase_time,
