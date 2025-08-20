@@ -9,8 +9,6 @@ from sympy.physics.units import acceleration
 from scipy.optimize import linear_sum_assignment
 from geopy.distance import geodesic
 
-
-import velocity_recong
 from sklearn.cluster import DBSCAN
 from geopy.distance import distance
 from geopy import Point
