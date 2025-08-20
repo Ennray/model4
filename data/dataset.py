@@ -13,7 +13,7 @@ def dataset():
     detect_distance = 30000
     
     # 速度参数
-    maximum_speed = 300
+    maximum_speed = 500
     minimum_speed = 200
     speed = 240
     acceleration = 80
