@@ -22,7 +22,6 @@ from numpy.ma.core import remainder
 
 import GeodeticConverter
 import outdata
-from FollowPositition import safety_distance
 from GeodeticConverter import dms_to_decimal
 from data.dataset import dataset
 from sympy import symbols, solve, Eq, sqrt
