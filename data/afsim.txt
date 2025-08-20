@@ -15,7 +15,7 @@
     "acceleration": 80,
     "column": 3,
     "num_of_column": 18,
-    "maximum_speed": 300,
+    "maximum_speed": 500,
     "minimum_speed": 200,
     "speed": 240,
     "enemy_approx": [
