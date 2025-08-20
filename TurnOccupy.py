@@ -1169,13 +1169,13 @@ def uav_timed_position(first_center_pos, uav_speed, uav_max_speed, uav_decelerat
     after_chase_bearing = converter.calculate_flight_bearing(enemy_lat, enemy_lon, first_lat, first_lon)
 
     # 第一二波次匀速结束/第三波次加匀速结束的位置
-    uniform_over_lat, uniform_over_lon, uniform_over_alt = GeodeticConverter.decimal_dms_to_degrees(first_center_pos) #改点
+    uniform_over_lat, uniform_over_lon, uniform_over_alt = GeodeticConverter.decimal_dms_to_degrees(first_center_pos) #改为匀速或加匀速结束的点[2]
     # uniform_distance = uav_speed * (state_end_times[2] - state_end_times[1])
     # uniform_over_lat, uniform_over_lon, uniform_over_alt = converter.calculate_destination_point(first_lat, first_lon,
     #                                                                                              first_alt, bearing,
     #                                                                                              uniform_distance, 0)
     #减速结束的位置
-    dec_over_lat, dec_over_lon, dec_over_alt = GeodeticConverter.decimal_dms_to_degrees(first_center_pos)  # 改点
+    dec_over_lat, dec_over_lon, dec_over_alt = GeodeticConverter.decimal_dms_to_degrees(first_center_pos)  # 改成减速后的点[3]
     # dec_over_time = state_end_times[3] - state_end_times[2]
     # dec_over_distance = uav_speed * dec_over_time - (1 / 2) * acceleration * dec_over_time ** 2
     # dec_over_lat, dec_over_lon, dec_over_alt = converter.calculate_destination_point(uniform_over_lat, uniform_over_lon,
@@ -1192,11 +1192,13 @@ def uav_timed_position(first_center_pos, uav_speed, uav_max_speed, uav_decelerat
     turn_over_uav = converter.local_to_geodetic_dms(converter.geodetic_to_local(turn_over_lat, turn_over_lon, turn_over_alt))
 
     # 遍历每个标准时间点，判断三波次无人机的状态
-    if time <= state_end_times[2]: #匀速阶段
-        # 计算位移
-        uniform_process_distance = uav_speed * time
-        #匀速阶段time处的位置
-        uav_chase_lat, uav_chase_lon, uav_chase_alt = converter.calculate_destination_point(first_lat, first_lon, first_alt, bearing, uniform_process_distance, 0)
+    if time <= state_end_times[2]: #匀速阶段 分12和3两种情况
+        if state_end_times [0] != state_end_times[1]:
+            pass
+        else:
+            uniform_process_distance = uav_speed * time
+            #匀速阶段time处的位置
+            uav_chase_lat, uav_chase_lon, uav_chase_alt = converter.calculate_destination_point(first_lat, first_lon, first_alt, bearing, uniform_process_distance, 0) #用初始点
     elif state_end_times[2] < time <= state_end_times[3]:#减速阶段
         dec_time = time - state_end_times[2]
         dec_distance = uav_speed * dec_time - (1/2) * acceleration * dec_time ** 2
