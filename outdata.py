@@ -14,6 +14,8 @@ def save_uav_multi_positions(
     second_uav_turn_point, second_uav_after_turn_point, second_uav_chase_point,
     second_uav_meet_time, second_uav_turn_time, second_uav_chase_time,
 
+    relative_position,
+
     filename="uav_full_path_record.json"
 ):
     data = {
@@ -59,6 +61,8 @@ def save_uav_multi_positions(
         "second_uav_turn_time": second_uav_turn_time,
         "second_uav_chase_time": second_uav_chase_time,
 
+        #================转弯波次相对位置===============
+        "relative_position": relative_position,
     }
 
     with open(filename, "w", encoding="utf-8") as f:
