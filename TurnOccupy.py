@@ -1138,20 +1138,28 @@ def third_uav_first_speed_up_timed_position(center_pos, enemy_center, uav_speed,
 # 第一波次从起始点的定时位置（关键时间：【加速结束（匀速开始）】，匀速结束（减速开始），减速结束（相遇），转弯结束（追击开始），追击结束）
 def uav_timed_position(first_center_pos, uav_speed, uav_max_speed, uav_deceleration_speed, enemy_center, acceleration, state_end_times, enemy_speed, time):
     #通过前两个时间点是否一致，来判断是第一二波还是第三波无人机，不一致时第三波次，有加速阶段
-    if state_end_times[0] != state_end_times[1]: #前两个状态时间不一样，说明有加速的过程
-        flag = 1
-    else:
-        flag = 0
-    if flag == 1:
-        #重新由第三波次初始位置计算加速阶段过后的位置，作为此函数的first_center_pos
-        first_center_pos = third_uav_first_speed_up_timed_position(first_center_pos, enemy_center, uav_speed, uav_max_speed, acceleration)
-    else:
-        pass
+    # if state_end_times[0] != state_end_times[1]: #前两个状态时间不一样，说明有加速的过程
+    #     flag = 1
+    # else:
+    #     flag = 0
+    #
+    # if flag == 0:
+    #     first_uniform_dis = state_end_times[1] * uav_speed
+    #     first_lat_0, first_lon_0, first_alt_0 = GeodeticConverter.decimal_dms_to_degrees(first_center_pos)
+    #     enemy_lat, enemy_lon, enemy_alt = GeodeticConverter.decimal_dms_to_degrees(enemy_center)
+    #     bearing = converter.calculate_flight_bearing(first_lat_0, first_lon_0, enemy_lat, enemy_lon)
+    #     uniform_over_lat, uniform_over_lon, uniform_over_alt = converter.calculate_destination_point(first_lat_0, first_lon_0, first_alt_0, bearing,
+    #                                                                                                  first_uniform_dis, 0)
+    #
+    # elif flag == 1:
+    #     #重新由第三波次初始位置计算加速阶段过后的位置，作为此函数的first_center_pos
+    #     first_center_pos = third_uav_first_speed_up_timed_position(first_center_pos, enemy_center, uav_speed, uav_max_speed, acceleration)
+    # else:
+    #     pass
 
     #转换波次中心、敌群中心、敌群被追击的位置、敌群朝向
     timed_position = []
     first_lat, first_lon, first_alt = GeodeticConverter.decimal_dms_to_degrees(first_center_pos)
-    # print(f"first_pos:",first_lat, first_lon, first_alt)
     enemy_lat, enemy_lon, enemy_alt = GeodeticConverter.decimal_dms_to_degrees(enemy_center)
 
     #初始航向
@@ -1160,24 +1168,27 @@ def uav_timed_position(first_center_pos, uav_speed, uav_max_speed, uav_decelerat
     #追击结束跟随航向(敌群航向)
     after_chase_bearing = converter.calculate_flight_bearing(enemy_lat, enemy_lon, first_lat, first_lon)
 
-    # 匀速结束的位置
-    uniform_distance = uav_speed * (state_end_times[2] - state_end_times[1])
-    uniform_over_lat, uniform_over_lon, uniform_over_alt = converter.calculate_destination_point(first_lat, first_lon,
-                                                                                                 first_alt, bearing,
-                                                                                                 uniform_distance, 0)
+    # 第一二波次匀速结束/第三波次加匀速结束的位置
+    uniform_over_lat, uniform_over_lon, uniform_over_alt = GeodeticConverter.decimal_dms_to_degrees(first_center_pos) #改点
+    # uniform_distance = uav_speed * (state_end_times[2] - state_end_times[1])
+    # uniform_over_lat, uniform_over_lon, uniform_over_alt = converter.calculate_destination_point(first_lat, first_lon,
+    #                                                                                              first_alt, bearing,
+    #                                                                                              uniform_distance, 0)
     #减速结束的位置
-    dec_over_time = state_end_times[3] - state_end_times[2]
-    dec_over_distance = uav_speed * dec_over_time - (1 / 2) * acceleration * dec_over_time ** 2
-    dec_over_lat, dec_over_lon, dec_over_alt = converter.calculate_destination_point(uniform_over_lat, uniform_over_lon,
-                                                                      uniform_over_alt, bearing, dec_over_distance, 0)
-    # 转弯结束的位置
-    # 总转弯角度/弧度，半径及航向角
+    dec_over_lat, dec_over_lon, dec_over_alt = GeodeticConverter.decimal_dms_to_degrees(first_center_pos)  # 改点
+    # dec_over_time = state_end_times[3] - state_end_times[2]
+    # dec_over_distance = uav_speed * dec_over_time - (1 / 2) * acceleration * dec_over_time ** 2
+    # dec_over_lat, dec_over_lon, dec_over_alt = converter.calculate_destination_point(uniform_over_lat, uniform_over_lon,
+    #                                                                   uniform_over_alt, bearing, dec_over_distance, 0)
+    # 转弯结束的位置，总转弯角度/弧度，半径及航向角
     angle_deg = 180
     angle_deg_rad = math.radians(angle_deg)
     turning_radius = (uav_deceleration_speed ** 2) / (GRAVITY_EARTH * math.tan(math.radians(45)))
     bearing_deg = converter.calculate_flight_bearing(dec_over_lat, dec_over_lon, enemy_lat, enemy_lon)
-    turn_over_lat, turn_over_lon, turn_over_alt = calculate_turning_position_with_bearing(
-        dec_over_lat, dec_over_lon, dec_over_alt, turning_radius, angle_deg_rad, bearing_deg, direction='right')
+    turn_over_lat, turn_over_lon, turn_over_alt  = GeodeticConverter.decimal_dms_to_degrees(first_center_pos)  # 改点turn_over_uav是dms，后面追击函数需要用
+
+    # turn_over_lat, turn_over_lon, turn_over_alt = calculate_turning_position_with_bearing(
+    #     dec_over_lat, dec_over_lon, dec_over_alt, turning_radius, angle_deg_rad, bearing_deg, direction='right')
     turn_over_uav = converter.local_to_geodetic_dms(converter.geodetic_to_local(turn_over_lat, turn_over_lon, turn_over_alt))
 
     # 遍历每个标准时间点，判断三波次无人机的状态
@@ -1186,7 +1197,6 @@ def uav_timed_position(first_center_pos, uav_speed, uav_max_speed, uav_decelerat
         uniform_process_distance = uav_speed * time
         #匀速阶段time处的位置
         uav_chase_lat, uav_chase_lon, uav_chase_alt = converter.calculate_destination_point(first_lat, first_lon, first_alt, bearing, uniform_process_distance, 0)
-       # timed_position.append((time, uav_chase_lat, uav_chase_lon, uav_chase_alt))
     elif state_end_times[2] < time <= state_end_times[3]:#减速阶段
         dec_time = time - state_end_times[2]
         dec_distance = uav_speed * dec_time - (1/2) * acceleration * dec_time ** 2
@@ -1194,7 +1204,6 @@ def uav_timed_position(first_center_pos, uav_speed, uav_max_speed, uav_decelerat
         #减速阶段time处的位置
         uav_chase_lat, uav_chase_lon, uav_chase_alt = converter.calculate_destination_point(uniform_over_lat, uniform_over_lon, uniform_over_alt,
                                                                                       bearing, dec_distance, 0)
-       # timed_position.append((time, uav_chase_lat, uav_chase_lon, uav_chase_alt))
     elif state_end_times[3] < time <= state_end_times[4]: #转弯阶段 不接收数据不传出数据(开始转弯到开始追击)
         #当前时间以及移动的弧度
         turning_time = (angle_deg_rad * turning_radius) / uav_deceleration_speed
@@ -1204,11 +1213,10 @@ def uav_timed_position(first_center_pos, uav_speed, uav_max_speed, uav_decelerat
         # 转弯阶段time处的位置
         uav_chase_lat, uav_chase_lon, uav_chase_alt = calculate_turning_position_with_bearing(
             dec_over_lat, dec_over_lon, dec_over_alt, turning_radius, angle_turned_rad, bearing_deg, direction='right')
-        #timed_position.append((time, uav_chase_lat, uav_chase_lon, uav_chase_alt))
     elif time > state_end_times[4]:  # 追击阶段 不接收数据不传出数据 traj_u_local
         enemy_after_turn_pos = enemy_timed_position(enemy_center, enemy_center, enemy_speed, first_center_pos, state_end_times[4])
         if state_end_times[4] < time <= state_end_times[5]:
-            num = round(20 * (time - state_end_times[4]))
+            num = round(20 * (time + 1  - state_end_times[4]))
             print("步长时间：", num)
             chase_info = pursue_moving_point(turn_over_uav, enemy_after_turn_pos, after_chase_bearing, enemy_speed,
                                                                                     100, 500, 80, 80, 30, 1, 0.05, 0.6, 20, 100000, num)
