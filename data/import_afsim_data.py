@@ -2,13 +2,24 @@ import json
 import os
 
 def load_afsim_data():
-    """从afsim.txt加载数据"""
+    """从 data 文件夹下的 txt 文件加载数据（自动匹配文件名）"""
     # 获取当前脚本所在目录
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    afsim_path = os.path.join(current_dir, 'afsim.txt')
-    
+    data_dir = os.path.dirname(os.path.abspath(__file__))
+
+    if not os.path.isdir(data_dir):
+        raise FileNotFoundError(f"未找到 data 文件夹: {data_dir}")
+
+    # 找到 data 下的所有 txt 文件
+    txt_files = [f for f in os.listdir(data_dir) if f.endswith('.txt')]
+    if not txt_files:
+        raise FileNotFoundError(f"data 文件夹中未找到 txt 文件")
+
+    # 这里默认读取第一个 txt 文件，如需特定规则可以修改
+    afsim_path = os.path.join(data_dir, txt_files[0])
+
     with open(afsim_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
+
     return data
 
 def dms_to_decimal(dms_str):

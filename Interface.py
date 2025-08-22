@@ -2,12 +2,18 @@ import json
 from flask import Flask, request, jsonify
 from werkzeug.exceptions import BadRequest
 import numpy as np
-
-import TurnOccupy as TO  # 确保与 TurnOccupy.py 在同一目录或已入 PYTHONPATH
+import TurnOccupy as TO
 
 app = Flask(__name__)
 
-# --- 把 numpy / 元组 等不可序列化对象转成可 JSON 的 ---
+# # 关闭键排序 & 允许中文直出
+# app.config['JSON_SORT_KEYS'] = False      # 不按键名排序（保留插入顺序）
+# app.config['JSON_AS_ASCII'] = False       # 中文不转义
+
+# Flask>=2.3 可以这样写（任选其一，别同时写两套）:
+app.json.sort_keys = False
+app.json.ensure_ascii = False
+
 def to_jsonable(obj):
     if isinstance(obj, (np.integer,)):
         return int(obj)
@@ -18,15 +24,15 @@ def to_jsonable(obj):
     if isinstance(obj, (set, tuple)):
         return list(obj)
     if isinstance(obj, dict):
+        # Python 3.7+ 字典本身按插入顺序保序
         return {k: to_jsonable(v) for k, v in obj.items()}
     if isinstance(obj, list):
         return [to_jsonable(v) for v in obj]
-    return obj  # 默认原样
+    return obj
 
 @app.route('/execute_main', methods=['GET'])
 def execute_main():
     try:
-        # 允许 body 为空；如果有就拿来覆盖默认 dataset
         payload = request.get_json(silent=True) or {}
         if not isinstance(payload, dict):
             raise BadRequest("JSON body 必须是对象（dict）。")
@@ -35,18 +41,11 @@ def execute_main():
         if config is not None and not isinstance(config, dict):
             raise BadRequest("config 必须是对象（dict）。")
 
-        # 调用 TurnOccupy 的入口（与旧 main 兼容）
         result = TO.main(config)
-
-        # 兜底：把结果转成可 JSON 的
         result_jsonable = to_jsonable(result)
-
         return jsonify({"status": "ok", "data": result_jsonable}), 200
-
     except Exception as e:
-        # 直接把错误信息返回，便于联调
         return jsonify({"status": "error", "message": str(e)}), 400
 
 if __name__ == '__main__':
-    # 如需跨网访问，加 host='0.0.0.0'
     app.run(port=5000, debug=True)
