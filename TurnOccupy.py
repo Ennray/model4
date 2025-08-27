@@ -1836,17 +1836,25 @@ def run_port(config: dict | None = None) -> dict:
     chase_last_uav_dms = []
     new_last_uav_time_info = []
     third_uav_dms = []
-    remain_second_uavs = []
     last_begin_turn_dms_all = []
     after_turn_last_dms_all = []
     last_state_dms_info = []
+    regression_remian_second_uavs = []
+
 
     for i in range(last_uav_num):
         # 对第2波次无人机按距离由远到近进行排序，得到sorted_second[0]就是末尾那架无人机(循环)
         last_uavs_sorted, last_uavs_dms = uav_sorted_distances_points(
             second_uavs[i], second_uav_center, data['enemy_approx'], reverse=True)
         third_uav_dms.append(last_uavs_dms[0])
-        remain_second_uavs += last_uavs_dms[1:]
+
+        remain_second_dms = list(zip([id[1] for id in last_uavs_sorted], [dms[3] for dms in last_uavs_sorted]))
+        remain_second_dms = remain_second_dms[1:]  #去掉最后一架无人机时编号+dms
+        regressioin_remain_single_second = [row[1] for row in sorted(remain_second_dms, key=lambda x: x[0])]
+
+        for dms in regressioin_remain_single_second:
+            regression_remian_second_uavs.append(dms)
+
 
         # 计算最后一架无人机转弯起点位置、转弯180度后位置、追赶位置以及敌方中心在我方无人机开始转弯时位置、被追赶上位置；转弯时间，追逐时间
         last_state_info, last_begin_turn_dms, after_turning_last_uav_dms, new_bearing_enemy, \
@@ -1885,7 +1893,8 @@ def run_port(config: dict | None = None) -> dict:
             last_uav_chase_time_all.append(chase_time_info)
             chase_last_uav_dms.append(chase_uav_dms)
 
-    remain_second_uavs += data[f"second_uavs_{last_uav_num + 1}"]
+    regression_remian_second_uavs += data[f"second_uavs_{last_uav_num + 1}"]
+
 
     # 再次计算占位策略，除掉重复点
     front_dms, corners, placements_dms = generate_placements_with_bearing(
@@ -1921,7 +1930,7 @@ def run_port(config: dict | None = None) -> dict:
     # =================================处理第2波次无人机===========================================
 
     remain_second_uav_sorted, remain_second_sorted_dms = uav_sorted_distances_points(
-        remain_second_uavs, second_uav_center, data['enemy_approx'], reverse=False)
+        regression_remian_second_uavs, second_uav_center, data['enemy_approx'], reverse=False)
 
     second_state_dms_info, meet_second_uav_dms, after_turn_second_uav_dms, second_uav_time_info, \
         bearing_enemy2, meet_single_time2, second_continue_meet_time, result2, turning_time2 = \
@@ -2031,6 +2040,7 @@ def run_port(config: dict | None = None) -> dict:
         #==================初始信息===================
         "first_init_point":  data['first_uavs'],
         "second_init_point": data['second_uavs'],
+        "last_init_point": third_uav_dms,
         "enemy_init_point": data['enemy_approx'],
 
 
