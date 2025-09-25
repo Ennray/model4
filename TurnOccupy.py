@@ -2,6 +2,8 @@ import geopy
 import numpy as np
 import matplotlib.pyplot as plt
 import math
+from pathlib import Path
+import subprocess, sys
 import sympy as sp
 from numpy.testing.print_coercion_tables import print_new_cast_table
 from sympy.physics.units import acceleration
@@ -23,6 +25,7 @@ from data.dataset import dataset
 from sympy import symbols, solve, Eq, sqrt
 
 import plotly.graph_objects as go
+
 
 GRAVITY_EARTH = 9.80665  # 地球表面重力加速度
 R = 6371000  # 地球半径，单位：米
@@ -606,6 +609,8 @@ def generate_placements_with_bearing(
     distance_m,  bearing_deg, exclusion_radius_m, preplaced_dms,
     start_side = 'left', max_rows = 999, first_uav_num = 45, second_uav_num = 30
 ):
+    print("所有信息都输出一遍我先看看:",enemy_center_dms,"weidu",enemy_lonrange_dms,"jingdu",enemy_latrange_dms,"juli",distance_m,
+          "fangxaing",bearing_deg,"banjin",exclusion_radius_m,"yijinzhanwei",preplaced_dms)
     # 先对中心进行转化
     lat_c, lon_c, alt_c = GeodeticConverter.decimal_dms_to_degrees(enemy_center_dms)
     alt = float(alt_c)
@@ -698,6 +703,7 @@ def generate_placements_with_bearing(
 
     inters_front = [(float(x), float(y), float(z)) for x, y, z in inters_front]
     inters_back = [(float(x), float(y), float(z)) for x, y, z in inters_back]
+    print("前后沿找到了吗：",inters_front)
 
     # 前沿坐标点转dms
     front_dms = []
@@ -957,6 +963,8 @@ def chase_strategy(occupy_dms, uav_after_turn_dms, first_uav_num, second_uav_num
         uav_tag = "second"
 
     chase_info = []
+    print("占位点数量:",occupy_dms)
+    print("追击数量:",uav_after_turn_dms)
 
     for i,uav in enumerate(uav_after_turn_dms):
 
@@ -1261,7 +1269,7 @@ def enemy_timed_position(enemy_pos, enemy_center, enemy_speed, uav_center, time)
     所以在这个函数中需要根据初始占位来确定每一架无人机转弯结束后需要追击的位置
     以placements_dms[0]，time_info[0]为起始位置/时间，第n个点随第n个时间移动
     移动方式需要敌群速度和行动方向'''
-def uav_turned_specific_position(enemy_center, enemy_speed, uav_center, time_info, placements_dms, first_uav_num, second_uav_num):
+def uav_turned_specific_position(enemy_center, enemy_speed, uav_center, time_info, placements_dms, first_uav_num, second_uav_num, tag_full_second):
     #转换敌群和无人机的位置形式
     output_enemy_timed_position = []
     # uav_lat, uav_lon, uav_alt = GeodeticConverter.decimal_dms_to_degrees(uav_center)
@@ -1271,13 +1279,18 @@ def uav_turned_specific_position(enemy_center, enemy_speed, uav_center, time_inf
     #改变数值，由小到大排序，默认False
     time_info = sorted(time_info)
     uav_tag = "None"
+    print("时间数据长度",len(time_info))
+    print("第二波次无人机数",second_uav_num)
 
     #通过时间点的个数判断第几波次
     if len(time_info) == first_uav_num:
         uav_tag = "first"
     elif len(time_info) == second_uav_num:
         uav_tag = "second"
+    elif len(time_info) == second_uav_num - 1 and tag_full_second == True:
+        uav_tag = "second"
 
+    print("uav_tag", uav_tag)
     #如果是第n波次，占位按照第n波次的执行
     if uav_tag == "first":
         position_section = placements_dms[:first_uav_num]
@@ -1540,13 +1553,29 @@ def bearing (dms1, dms2):
 
     return bearing
 
-def elementwise_mean_last(last_time_info_all, limit):
-    use = last_time_info_all[:limit]
-    if len(use) < 2:
-        raise ValueError("需要至少两组 last_time_info 才能求平均")
+#对若干last_time_info按列求均值，但如果只有1组数据，直接返回，如果2组以上，求平均值，如果没有有效数据，抛出异常
+def elementwise_mean_last(last_time_info_all, limit=None):
+
+    if last_time_info_all is None:
+        raise ValueError("last_time_info_all 不能为空")
+    if limit is None:
+        limit = len(last_time_info_all)
+
+    # 取前 limit 组，并过滤掉 None/空列表
+    use = [x for x in last_time_info_all[:limit] if x]
+    if not use:
+        raise ValueError("没有可用于求平均的数据组")
+    if len(use) == 1:
+        return list(use[0])  # 直接返回唯一一组的拷贝
+
+    # 对齐到最短长度，避免 zip 截断隐式行为带来的混淆
     L = min(len(x) for x in use)
-    use = [x[:L] for x in use]
-    return [sum(col)/len(use) for col in zip(*use)]
+    if L == 0:
+        return []  # 或者 raise ValueError("数据长度为0")
+
+    # 逐列平均
+    return [sum(row[i] for row in use) / len(use) for i in range(L)]
+
 
 
 
@@ -1782,8 +1811,33 @@ def plot_positions(uav_first_geo_init, uav_second_geo_init,
 
     fig.show()
 
+def dataset_realtime(config: dict | None = None) -> dict:
+    cfg = config or {}
+    auto_import = cfg.get("auto_import_afsim", True)
+    afsim_args = cfg.get("afsim_args", [])
+
+    if auto_import:
+        project_root = Path(__file__).resolve().parent  # 手动运行时就在这个目录
+        script_rel = Path("data") / "import_afsim_data.py"  # 和手动一样的相对路径
+        try:
+            res = subprocess.run(
+                [sys.executable, str(script_rel), *afsim_args],
+                cwd=str(project_root),  # 关键：保持与手动运行相同的 CWD
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            if res.stdout.strip():
+                print("[import_afsim_data.py][stdout]\n", res.stdout)
+            if res.stderr.strip():
+                print("[import_afsim_data.py][stderr]\n", res.stderr)
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"AFSIM 数据导入失败：{e.stderr or e}")
+
+
 #接口函数
 def run_port(config: dict | None = None) -> dict:
+
 
     # ============= 1) 载入数据 & 覆盖配置 =============
     data = dataset()
@@ -1793,6 +1847,7 @@ def run_port(config: dict | None = None) -> dict:
 
     # 增加转弯时速度为100
     uav_deceleration_speed = data.get('uav_deceleration_speed', 100)  # 默认 100
+    tag_full_second = False
 
     # ============= 2) 构建全局坐标轴converter =============
     global converter
@@ -1828,8 +1883,10 @@ def run_port(config: dict | None = None) -> dict:
     # 计算当第1波次无人机能将敌方全纳入探测范围时的时间
     time_detect = function_last_detection_time(
         data['minimum_speed'], data['speed'], max_dist, data['detect_distance'])
+    print("新数据的相遇时间:",time_detect)
 
     second_uavs = [data[f"second_uavs_{i}"] for i in range(1, data['column'] + 1)]
+
 
     last_time_info_all = []
     last_uav_chase_time_all = []
@@ -1893,8 +1950,11 @@ def run_port(config: dict | None = None) -> dict:
             last_uav_chase_time_all.append(chase_time_info)
             chase_last_uav_dms.append(chase_uav_dms)
 
-    regression_remian_second_uavs += data[f"second_uavs_{last_uav_num + 1}"]
-
+    #说明此时纵队无人机处于刚好排满情况
+    if last_uav_num == data['column']:
+        tag_full_second = True
+    else:
+        regression_remian_second_uavs += data[f"second_uavs_{last_uav_num + 1}"]
 
     # 再次计算占位策略，除掉重复点
     front_dms, corners, placements_dms = generate_placements_with_bearing(
@@ -1907,7 +1967,10 @@ def run_port(config: dict | None = None) -> dict:
         max_rows=100, first_uav_num=data['first_num'], second_uav_num=data['second_num']
     )
 
+    print("当前的占位信息：",placements_dms)
+
     new_last_uav_time_info = elementwise_mean_last(last_time_info_all, 2)
+    print("得到的最后一架无人机信息表:",new_last_uav_time_info)
 
     # =================================处理第1波次无人机===========================================
 
@@ -1931,7 +1994,7 @@ def run_port(config: dict | None = None) -> dict:
 
     remain_second_uav_sorted, remain_second_sorted_dms = uav_sorted_distances_points(
         regression_remian_second_uavs, second_uav_center, data['enemy_approx'], reverse=False)
-
+    # print("剩下的第二波次无人机数:",len(remain_second_uav_sorted))
     second_state_dms_info, meet_second_uav_dms, after_turn_second_uav_dms, second_uav_time_info, \
         bearing_enemy2, meet_single_time2, second_continue_meet_time, result2, turning_time2 = \
         first_uav_move_strategy(
@@ -1945,11 +2008,11 @@ def run_port(config: dict | None = None) -> dict:
     #第n波次每一架无人机转弯后应追击的占位
     output_each_enemy_pos1 = uav_turned_specific_position(
         data['enemy_approx'], data['speed'], data['basepoint'],
-        meet_single_time1, placements_dms, data['first_num'], data['second_num'] - last_uav_num
+        meet_single_time1, placements_dms, data['first_num'], data['second_num'] - last_uav_num, tag_full_second
     )
     output_each_enemy_pos2 = uav_turned_specific_position(
         data['enemy_approx'], data['speed'], data['basepoint'],
-        meet_single_time2, placements_dms, data['first_num'], data['second_num'] - last_uav_num
+        meet_single_time2, placements_dms, data['first_num'], data['second_num'] - last_uav_num, tag_full_second
     )
 
 
@@ -2027,6 +2090,9 @@ def run_port(config: dict | None = None) -> dict:
     #                                                 state_result)
     # print("实时位置:", real_relative_position_info)
 
+    print("第2波次的长度:",len(regression_remian_second_uavs),"2222222", len(second_uav_after_turn_point),"3333333",len(second_uav_chase_point),"44444444",len(second_uav_meet_time),
+          "55555555555",len(second_uav_chase_time))
+
 
     out = {
         "uavs_speed": {
@@ -2039,7 +2105,7 @@ def run_port(config: dict | None = None) -> dict:
 
         #==================初始信息===================
         "first_init_point":  data['first_uavs'],
-        "second_init_point": data['second_uavs'],
+        "second_init_point": regression_remian_second_uavs,
         "last_init_point": third_uav_dms,
         "enemy_init_point": data['enemy_approx'],
 
@@ -2090,6 +2156,7 @@ def main(config: dict | None = None):
 
 
 if __name__ == "__main__":
+    # dataset_realtime()
     result = run_port()  # 可传 config 覆盖默认数据
     # 你若还想显示可视化，可在这里读取 result 后，调用原有 plot_* 方法
     # e.g. plot_positions(...使用 result 里的字段组织参数...)
