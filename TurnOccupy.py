@@ -919,6 +919,16 @@ def bearing_to_basis(bearing_deg: float):
     u = np.array([0.0, 0.0, 1.0])                     # 上
     return f, r, u
 
+#======================方阵生成分配集合=======================
+#给定n个槽位，返回接近平方的rows,clos
+# def grid_rc(n:int):
+#
+#
+
+
+
+
+
 
 #判断加速减速情况，是加速后直接减速还是加速后匀速再减速
 def speed_situation_time_lower_bound(direction_vector, v0, v_max, v_target, a_acc, a_dec):
