@@ -1294,6 +1294,43 @@ def uav_timed_position(first_center_pos, uav_speed, uav_max_speed, uav_decelerat
     # print(f"某时刻无人机位置", timed_position)
     return timed_position
 
+# 统一方阵阵位使用
+def advance_along_track_dms(dms_start, bearing_deg, speed_mps, time):
+    start_lat, start_lon, start_alt = GeodeticConverter.decimal_dms_to_degrees(dms_start)
+    new_lat, new_lon, new_alt = converter.calculate_destination_point(start_lat, start_lon, start_alt, bearing_deg, speed_mps * time, 0)
+    new_position = converter.local_to_geodetic_dms(converter.geodetic_to_local(new_lat, new_lon, new_alt))
+
+    return new_position
+
+# 求最慢到占位时那架无人机绝对时刻的方阵占位
+def formation_snapshot_at_lock(pos_arrive_dms, time_arrive_list, speed, bearing_deg, time_lock):
+
+    # —— 标准化为列表 —— #
+    def _is_single_dms(x):
+        return isinstance(x, (list, tuple)) and len(x) == 3 and all(isinstance(s, (str, int, float)) for s in x)
+
+    if _is_single_dms(pos_arrive_dms):
+        pos_seq = [pos_arrive_dms]
+    else:
+        pos_seq = list(pos_arrive_dms)
+
+    if isinstance(time_arrive_list, (int, float)):
+        time_seq = [float(time_arrive_list)]
+    else:
+        time_seq = list(time_arrive_list)
+
+    if len(pos_seq) != len(time_seq):
+        raise ValueError(f"length mismatch: {len(pos_seq)} positions vs {len(time_seq)} times")
+
+    # —— 前推到锁形时刻 —— #
+    pos_lock = []
+    for p_dms, t_abs in zip(pos_seq, time_seq):
+        dt = max(0.0, float(time_lock) - float(t_abs))
+        p_lock = advance_along_track_dms(p_dms, bearing_deg, speed, dt)
+        pos_lock.append(p_lock)
+
+    return pos_lock
+
 
 # 敌群定时输出位置
 def enemy_timed_position(enemy_pos, enemy_center, enemy_speed, uav_center, time):
@@ -1969,7 +2006,7 @@ def run_port(config: dict | None = None) -> dict:
         last_state_info, last_begin_turn_dms, after_turning_last_uav_dms, new_bearing_enemy, \
             meet_last_enemy_dms, after_turn_enemy_dms, last_time_info = last_uav_move_strategy(
                 data['minimum_speed'], data['maximum_speed'], uav_deceleration_speed, data['speed'],
-                max_dist, data['detect_distance'], last_uavs_dms[0], min_enemy_dms,
+                max_dist, data['detect_distance'], last_uavs_dms[0], max_enemy_dms,
                 data['acceleration'], data['enemy_approx']
             )
 
@@ -2129,6 +2166,17 @@ def run_port(config: dict | None = None) -> dict:
     print("得到的最后一架无人机信息表:", new_last_uav_time_info)
 
 
+    #为了当无人机都到达方阵位置时，得到统一时间点的占位，所以需要找到前置无人机成为方阵中心时敌群位置，以及此时方阵的方向
+    last_uav_arrive_time = last_time_info_all[0][4] + chase_time_info[0]
+    enemy_center_last = enemy_timed_position(data['enemy_approx'], data['enemy_approx'], data['speed'], data['basepoint'], last_uav_arrive_time)
+    print("此时敌群位置：",enemy_center_last)
+    bearing_square = bearing(chase_uav_dms, enemy_center_last)
+    print("bearing_square:", bearing_square)
+
+    print("！！！！！！！！！！！！",last_uav_arrive_time)
+
+
+
 
     # =================================处理第1波次无人机===========================================
 
@@ -2245,6 +2293,10 @@ def run_port(config: dict | None = None) -> dict:
         distance_margin=20, max_steps=200000
     )
 
+
+
+
+
     # print("第1波次结果：",first_chase_info )
     # print("还有一个：", second_chase_info)
 
@@ -2295,6 +2347,30 @@ def run_port(config: dict | None = None) -> dict:
     second_uav_time_list.append(second_uav_time_list[4] + np.mean(second_uav_chase_time))  # last_time_list[4] + last_uav_chase_time_all[0][0]
     # print("last_time_list, first_uav_time_list, second_uav_time_list:", second_uav_time_list)
 
+    first_after_chase_time = []
+    second_after_chase_time = []
+    for i in range(len(first_uav_chase_time)):
+        first_after_chase = first_uav_chase_time[i] + first_uav_meet_time[i] + turning_time1
+        first_after_chase_time.append(first_after_chase)
+
+    for i in range(len(second_uav_chase_time)):
+        second_after_chase = second_uav_chase_time[i] + second_uav_meet_time[i] + turning_time2
+        second_after_chase_time.append(second_after_chase)
+    print("追完后1的时间：", first_after_chase_time)
+    print("追完后2的时间：", second_after_chase_time)
+
+    time_lock_1 = max(map(float, first_after_chase_time))
+    time_lock_2 = max(map(float, second_after_chase_time))
+    print("时间锁：",time_lock_1, time_lock_2)
+    time_lock = max(time_lock_1, time_lock_2)
+
+    first_uav_lock_dms = formation_snapshot_at_lock(first_uav_chase_point, first_after_chase_time, data['speed'], bearing_square, time_lock)
+    second_uav_lock_dms = formation_snapshot_at_lock(second_uav_chase_point, second_after_chase_time, data['speed'],bearing_square, time_lock)
+    last_uav_lock_dms = formation_snapshot_at_lock(chase_last_uav_dms, last_uav_arrive_time, data['speed'], bearing_square, time_lock)
+    print("先随便看看：", first_uav_lock_dms)
+    print("先随便看看：", second_uav_lock_dms)
+    print("先随便看看：", last_uav_lock_dms)
+
     # 相对位置
     state_result = drone_state(first_uav_time_list, second_uav_time_list, last_time_list, data['minimum_speed'],
                                data['maximum_speed'], data['speed'], data['basepoint'], data['enemy_approx'],
@@ -2312,11 +2388,7 @@ def run_port(config: dict | None = None) -> dict:
     print("第2波次追击时间：", second_uav_chase_time)
     print("第1波次相遇时间：", first_uav_meet_time)
     print("第2波次相遇时间：", second_uav_meet_time)
-    first_after_chase_time = []
-    for i in range(len(first_uav_chase_time)):
-        first_after_chase = first_uav_chase_time[i] + first_uav_meet_time[i]
-        first_after_chase_time.append(first_after_chase)
-    print("追完后1的时间：",first_after_chase_time)
+
 
     print("追完1的位置：",first_uav_chase_point)
     print("追完2的点位：", second_uav_chase_point)
@@ -2374,7 +2446,7 @@ def run_port(config: dict | None = None) -> dict:
         "relative_position":  state_result,
     }
     print("数据导出完成")
-    # plot_positions(chase_last_uav_dms[0], first_uav_chase_point, second_uav_chase_point)
+    # plot_positions(last_uav_lock_dms, first_uav_lock_dms, second_uav_lock_dms)
     return out
 
 
