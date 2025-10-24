@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess, sys
 import sympy as sp
 from numpy.testing.print_coercion_tables import print_new_cast_table
+from scipy.special import lmbda
 from sympy.physics.units import acceleration
 from scipy.optimize import linear_sum_assignment
 from geopy.distance import geodesic
@@ -396,13 +397,13 @@ def first_meet_enemy_time(uav_sorted, max_enemy_dms, uav_speed, uav_deceleration
 
         # 添加到meet_time列表中
         meet_time_info.append((uav_number, total_time, uniform_time, distance_uav))
-    # print("meet_time_all:",meet_time_info)
+    print("meet_time_all:",meet_time_info)
 
     return meet_time_info
 
 
 # 第1波次或第2波次跟随飞行无人机飞行策略
-def first_uav_move_strategy(uav_speed, uav_dec_speed, uav_max_speed, enemy_speed, first_sorted_uav, first_uav_center, max_enemy_dms, safety_distance, acceleration, time_detect):
+def first_uav_move_strategy(uav_speed, uav_dec_speed, uav_max_speed, enemy_speed, first_sorted_uav, first_uav_center, max_enemy_dms, acceleration, time_detect):
     first_uav_time_info = []
     start_first_uav_dms = []
     meet_first_uav_dms = []
@@ -530,14 +531,21 @@ def first_uav_move_strategy(uav_speed, uav_dec_speed, uav_max_speed, enemy_speed
     firstsecond_state_dms_info.append(firstsecond_turn_dms)  # 第1/2波转弯后dms
     firstsecond_state_dms_info.append(None) # 保证与第三波次一致数目一致
     # 每一架无人机从进入视场开始直到转弯结束的时间，仅时间列表，time_detect是开始到进入视场，turning_time是转弯时间
-    meet_single_time = [(time_detect + entry[1] + turning_time) for entry in meet_time_info]
-    result = [(meet_time_info[i][0], meet_single_time[i], after_turn_first_uav_dms[i] ) for i in range(len(meet_single_time))]
-    sorted_result = sorted(result, key=lambda x: x[1])
+    after_turn_single_time = [(time_detect + entry[1] + turning_time) for entry in meet_time_info]
+    result = [(meet_time_info[i][0], after_turn_single_time[i], after_turn_first_uav_dms[i] ) for i in range(len(after_turn_single_time))]
+    after_turn_signleuav_time = [row[1] for row in sorted(result, key=lambda x: x[0])] #对转弯后的时间按照无人机编号重排
+    print("after_turn_singleuav_time:", after_turn_signleuav_time)
+    sorted_result = sorted(result, key=lambda x: x[0])  #改为按无人机编号排序，不再按与敌群交错时间排序
+    # after_single_time = sorted(after_turn_single_time, key=lambda x: x[0])
+    # print("after_single_time", after_single_time)
+    print("anshenmwanyip   paide :", result)
+    print("result2222222222:", sorted_result)
 
     # 在相遇时间中增加探测时间
     meet_time = [(item[1] + time_detect ) for item in meet_time_info]
     time_item = [item[0] for item in meet_time_info]
     continue_meet_time_info = list(zip(time_item, meet_time))
+    print("相遇时间及无人机编号：", continue_meet_time_info)
 
 
     # print("每架无人机从开始到转弯结束的编号、时间、位置", result)
@@ -546,7 +554,7 @@ def first_uav_move_strategy(uav_speed, uav_dec_speed, uav_max_speed, enemy_speed
     # print("转弯结束时间：",meet_single_time)
 
 
-    return  firstsecond_state_dms_info, meet_first_uav_dms, after_turn_first_uav_dms, first_uav_time_info, bearing_enemy_next, meet_single_time, continue_meet_time_info, sorted_result, turning_time
+    return  firstsecond_state_dms_info, meet_first_uav_dms, after_turn_first_uav_dms, first_uav_time_info, bearing_enemy_next, after_turn_signleuav_time, continue_meet_time_info, sorted_result, turning_time
 
 
 # 合成时间信息表（3个批次的）
@@ -1992,15 +2000,19 @@ def run_port(config: dict | None = None) -> dict:
         last_uavs_sorted, last_uavs_dms = uav_sorted_distances_points(
             second_uavs[i], second_uav_center, data['enemy_approx'], reverse=True)
         third_uav_dms.append(last_uavs_dms[0])
+        print("last_uavs_sorted", last_uavs_sorted)
+        print("last_uavs_dms", last_uavs_dms)
         # print("当前得到的末尾无人机：", third_uav_dms)
 
         remain_second_dms = list(zip([id[1] for id in last_uavs_sorted], [dms[3] for dms in last_uavs_sorted]))
         remain_second_dms = remain_second_dms[1:]  #第2波次纵队中满队去掉最后一架无人机时编号+dms
+
+        '''============================标记一下，此时的第2波次满队的无人机已经去除到了前置转弯无人机并且恢复到了原来的排序================================='''
         regression_remain_single_second = [row[1] for row in sorted(remain_second_dms, key=lambda x: x[0])]
+        print("1111111111regression_remain_single_second", regression_remain_single_second)
 
         for dms in regression_remain_single_second:
-            regression_remian_second_uavs.append(dms) #将满队去掉最后一架无人机后再进行合并
-
+            regression_remian_second_uavs.append(dms) #将满队去掉最后一架无人机后再进行合并(多个满队)
 
         # 计算最后一架无人机转弯起点位置、转弯180度后位置、追赶位置以及敌方中心在我方无人机开始转弯时位置、被追赶上位置；转弯时间，追逐时间
         last_state_info, last_begin_turn_dms, after_turning_last_uav_dms, new_bearing_enemy, \
@@ -2081,14 +2093,13 @@ def run_port(config: dict | None = None) -> dict:
     ]
     print("新得到的中心范围：",phalanx_latrange,"纬度范围：",phalanx_lonrange)
 
-    # 重算占位：阵心=我方方阵中心；朝向仍用 bearing_enemy；预放位置传入最后一架转后点，避免正重合
+    # 重算占位：阵心=我方方阵中心；朝向仍用 bearing_enemy；预放位置暂无
     front_dms, corners, placements_dms = generate_placements_with_bearing(
         phalanx_center, phalanx_latrange, phalanx_lonrange,
         distance_m=data['near_detect_distance'], bearing_deg=bearing_enemy,
-        exclusion_radius_m=None, preplaced_dms=after_turn_last_dms_all,
+        exclusion_radius_m=None, preplaced_dms=[],
         start_side='left', max_rows=100, first_uav_num=data['first_num'], second_uav_num=data['second_num']
     )
-    print("当前的占位信息（以我方方阵中心平移后）:", len(placements_dms))
 
     # 给最后一架无人机们分配第2波次的槽位并追击到位
     occupied_slot_indices = set()
@@ -2143,7 +2154,6 @@ def run_port(config: dict | None = None) -> dict:
                 data['enemy_approx'], data['basepoint'], 30, uav_deceleration_speed, data['maximum_speed']
             )
             print("转弯后→中心槽位 追击时间:", chase_time_info, "到位坐标:", chase_uav_dms)
-            print("前置转弯无人机追到的位置：", chase_uav_dms)
 
             last_state_dms_info[0].append(chase_uav_dms)
             last_state_dms_info = last_state_dms_info[0]
@@ -2186,16 +2196,21 @@ def run_port(config: dict | None = None) -> dict:
     # 对第一批次无人机进行排序，距离敌群由近到远，并计算相遇时间（包含安全距离）
     first_sorted, first_sorted_dms = uav_sorted_distances_points(
         data['first_uavs'], first_uav_center, max_enemy_dms, reverse=False)
+    print("排序后的1：",first_sorted)
 
-    # result为转弯后的点位
+    '''===============================目前第2处发现时间问题，已经将meet_signle_time进行修改，其为已经按编号输出的无人机转弯后的时间============================'''
+    # result为转弯后的点位（已经按照编号排序）
     first_state_dms_info, meet_first_uav_dms, after_turn_first_uav_dms, first_uav_time_info, \
-        bearing_enemy1, meet_single_time1, first_continue_meet_time, result1, turning_time1 = \
+        bearing_enemy1, after_turn_single_time1, first_continue_meet_time, result1, turning_time1 = \
         first_uav_move_strategy(
             data['minimum_speed'], uav_deceleration_speed, data['maximum_speed'], data['speed'],
-            first_sorted, first_uav_center, max_enemy_dms, 1000, data['acceleration'], time_detect
+            first_sorted, first_uav_center, max_enemy_dms, data['acceleration'], time_detect
         )
     result_turn_uav_pos1 = [i[2] for i in result1]
     print("第1波次无人机转弯后的位置：",len(result_turn_uav_pos1))
+    print("first_state_dms_info", first_state_dms_info)
+    print("meet_first_uav_dms", meet_first_uav_dms)
+
 
     # =================================处理第2波次无人机===========================================
 
@@ -2203,10 +2218,10 @@ def run_port(config: dict | None = None) -> dict:
         regression_remian_second_uavs, second_uav_center, data['enemy_approx'], reverse=False)
     # print("剩下的第二波次无人机数:",len(remain_second_uav_sorted))
     second_state_dms_info, meet_second_uav_dms, after_turn_second_uav_dms, second_uav_time_info, \
-        bearing_enemy2, meet_single_time2, second_continue_meet_time, result2, turning_time2 = \
+        bearing_enemy2, after_turn_single_time2, second_continue_meet_time, result2, turning_time2 = \
         first_uav_move_strategy(
             data['minimum_speed'], uav_deceleration_speed, data['maximum_speed'], data['speed'],
-            remain_second_uav_sorted, second_uav_center, max_enemy_dms, 1000, data['acceleration'], time_detect
+            remain_second_uav_sorted, second_uav_center, max_enemy_dms, data['acceleration'], time_detect
         )
     result_turn_uav_pos2 = [i[2] for i in result2]
     print("第2波次无人机转弯后的位置：", len(result_turn_uav_pos2))
@@ -2251,14 +2266,14 @@ def run_port(config: dict | None = None) -> dict:
           f"spill={spill}, first_assigned={first_assigned}, second_assigned={second_assigned}")
 
 
-    dec_single_time1 = [t - last_time_info_all[0][4] for t in meet_single_time1]
-    dec_single_time2 = [t - last_time_info_all[0][4] for t in meet_single_time2]
+    dec_single_time1 = [t - last_time_info_all[0][4] for t in after_turn_single_time1]
+    dec_single_time2 = [t - last_time_info_all[0][4] for t in after_turn_single_time2]
 
     print("这是1的什么时间：",first_uav_time_info)
     print("这是2的什么时间:", second_uav_time_info)
 
-    print("这又是1的什么时间：",meet_single_time1)
-    print("这又是2的什么时间：",meet_single_time2)
+    print("这又是1的什么时间：",after_turn_single_time1)
+    print("这又是2的什么时间：",after_turn_single_time2)
 
     # === 用“重映射后的占位”生成两波次各自的、按转完时刻前推后的目标 ===
     output_each_enemy_pos1 = uav_turned_specific_position(
@@ -2292,7 +2307,7 @@ def run_port(config: dict | None = None) -> dict:
         pos_tol=20, vel_tol=1, dt=0.05, k_lead=0.6,
         distance_margin=20, max_steps=200000
     )
-
+    print("second_chase_info", second_chase_info)
 
 
 
@@ -2314,6 +2329,7 @@ def run_port(config: dict | None = None) -> dict:
 
     first_uav_chase_time_list = list(zip(result_first, [item[0] for item in first_chase_info]))
     second_uav_chase_time_list = list(zip(result_second, [item[0] for item in second_chase_info]))
+    print("second_uav_chase_time_list,",second_uav_chase_time_list)
 
     time_uav_info = generate_uav_time_info(new_last_uav_time_info, first_uav_time_info, second_uav_time_info)
     state_uav_info = generate_uav_time_info(last_state_dms_info, first_state_dms_info, second_state_dms_info)
@@ -2350,11 +2366,11 @@ def run_port(config: dict | None = None) -> dict:
     first_after_chase_time = []
     second_after_chase_time = []
     for i in range(len(first_uav_chase_time)):
-        first_after_chase = first_uav_chase_time[i] + first_uav_meet_time[i] + turning_time1
+        first_after_chase = first_uav_chase_time[i] + after_turn_single_time1[i]
         first_after_chase_time.append(first_after_chase)
 
     for i in range(len(second_uav_chase_time)):
-        second_after_chase = second_uav_chase_time[i] + second_uav_meet_time[i] + turning_time2
+        second_after_chase = second_uav_chase_time[i] + after_turn_single_time2[i]
         second_after_chase_time.append(second_after_chase)
     print("追完后1的时间：", first_after_chase_time)
     print("追完后2的时间：", second_after_chase_time)
