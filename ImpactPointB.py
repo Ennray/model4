@@ -62,6 +62,30 @@ class SingleBPointResult:
     notes: str
 
 
+@dataclass
+class ObliqueBPointResult:
+    # 坐标
+    pB_local: np.ndarray         # B(=C) 点 local
+    pWing_local: np.ndarray      # D 点（翼中点）local
+    pAim_local: np.ndarray       # 撞击对准点（轴线上）local
+    B_dms: tuple                 # B 点 DMS
+    Wing_dms: tuple              # D 点 DMS
+    Aim_dms: tuple               # 对准点 DMS
+    # 关键参数
+    tC: float
+    t_CD: float
+    v_imp: float
+    alpha_small_deg: float       # 末段小斜角（BC、CD 共用）
+    avg_acc_required: float      # 平均加速度需求（沿航迹）
+    # 约束校核
+    dist_aim_to_front: float     # 对准点到前机的沿程距离（应 ≤ 45）
+    dist_aim_from_rear: float    # 对准点到后机的沿程距离（应 ≥ 间距/3）
+    spacing_front_rear: float    # 前后机沿程间距
+    angle_now_to_C_deg: float    # 初段到C点的斜角
+    notes: str
+
+
+
 
 #===========================以敌我中心构建全局坐标系converter===============================
 def build_global_converter(uav_center, enemy_center):
@@ -90,7 +114,7 @@ def find_single_uav_B_point(converter, R_ENU_to_local, uav_point, target_point, 
 
     s_hat = to_unit(target_local_vec) #目标航迹单位向量
     up = np.array([0.0, 0.0, 1.0]) #向上向量
-    n_hat = to_unit(np.cross(up, s_hat)) #航迹左侧横向单位想了
+    n_hat = to_unit(np.cross(up, s_hat)) #航迹左侧横向单位向量
     if np.linalg.norm(n_hat) < 1e-6:
         n_hat = np.array([1.0, 0.0, 0.0]) #极端情况：目标航迹几乎竖直（兜底给定一个水平向右向量）
     lateral_sign = +1 if lateral.lower() in ('left', 'l') else -1
@@ -167,7 +191,225 @@ def find_single_uav_B_point(converter, R_ENU_to_local, uav_point, target_point, 
     )
 
 
+# 尾后斜向接近路线控制
+def upfind_single_uav_B_point(converter, R_ENU_to_local, uav_point, target_point, rear_point, uav_speed, uav_course_deg, target_speed, target_course_deg, wing_half: float,
+                              rear_speed: float | None = None, rear_course_deg: float | None = None, lateral: str = 'right',
+                              to_C_window = (1.0, 2.0), to_CD_window = (3.0, 5.0), v_imp_range = (10.0, 15.0),
+                              alpha_small_deg_range = (2.0, 8.0), alpha_large_min_deg = 15.0,
+                              a_max: float | None = None, v_max: float | None = None,
+                              max_dist_to_front = 45.0, rear_frac_min = 1/3, grid = (15, 7, 5, 5)) -> ObliqueBPointResult | None:
+    # 先将坐标（当前无人机点，目标点，后方敌机点）及速度转为local
+    pointA = dms_to_local(converter, uav_point)
+    pointF = dms_to_local(converter, target_point)
+    pointR = dms_to_local(converter, rear_point)
 
+    uav_dir_enu = bearing_to_enu_unit(uav_course_deg)
+    front_dir_enu = bearing_to_enu_unit(target_course_deg)
+    rear_dir_enu = bearing_to_enu_unit(rear_course_deg if rear_course_deg is not None else target_course_deg)
+
+    speedA = R_ENU_to_local @ (uav_dir_enu * uav_speed)
+    speedF = R_ENU_to_local @ (front_dir_enu * target_speed)
+    speedR = R_ENU_to_local @ (rear_dir_enu * (rear_speed if rear_speed is not None else target_speed))
+
+    s_hat = to_unit(speedF)
+    up = np.array([0.0, 0.0, 1.0])
+    n_hat_left = to_unit(np.cross(up, s_hat))
+    if np.linalg.norm(n_hat_left) < 1e-6:
+        n_hat_left = np.array([1.0, 0.0, 0.0])
+    lateral_sign = +1 if lateral.lower() in ('left', 'l') else -1
+    n_hat = lateral_sign * n_hat_left
+
+    speed_target = np.linalg.norm(speedF)
+    uav_speed_along_track_now = float(np.dot(speedA, s_hat)) #当前沿着目标航迹的速度分量
+    uav_speed_now = float(np.linalg.norm(speedA))
+
+    # 创建搜索网格
+    to_C_list = np.linspace(to_C_window[0], to_C_window[1], grid[0])
+    to_CD_list = np.linspace(to_CD_window[0], to_CD_window[1], grid[1])
+    vimp_list = np.linspace(v_imp_range[0], v_imp_range[1], grid[2])
+    deg_list = np.linspace(alpha_small_deg_range[0], alpha_small_deg_range[1], grid[3])
+
+    best, best_score = None, (np.inf, np.inf, np.inf)
+
+    # 进行穷举，生成D点，并倒推C点进行快筛
+    for to_C in to_C_list:
+        for to_CD in to_CD_list:
+            t_imp = to_C + to_CD
+
+            # 敌机front及敌机rear在撞机时刻的位置
+            pointF_now = pointF + speedF * t_imp
+            pointR_now = pointR + speedR * t_imp
+
+            # 敌机前后沿程间距
+            linear_spacing = float(np.dot(pointF_now - pointR_now, s_hat)) # 敌机前后间距
+            if linear_spacing <= 0:
+                continue
+
+            # 对准点要放在前机与后机两个敌机之间，max(间距/3, 间距-45)
+            distance_lower = max(linear_spacing * rear_frac_min, linear_spacing - max_dist_to_front)
+            if distance_lower > linear_spacing:
+                continue
+
+            # 确定对准点的位置，但不强行把它放入轨迹几何中，只用来做末端校核与记录
+            distance_aim = 0.5 * (distance_lower + linear_spacing)
+            pAim_axis = pointR_now + distance_aim * s_hat   # 轴线上对准点
+
+            # 撞机点D
+            pointD = pointF_now + lateral_sign * 0.5 * wing_half * n_hat
+
+            for v_imp in vimp_list:
+                s_CD = v_imp * to_CD #末段路程闭合长度
+
+                for deg_small in deg_list:
+                    deg = np.deg2rad(deg_small)
+
+                    if np.cos(deg) < 1e-6:
+                        continue  #将近90°那就不合理了
+                    g_hat = to_unit(np.cos(deg) * s_hat + np.sin(deg) * (-up))
+
+                    # 有D点后倒推C点，确保C在s_hat上的投影为s_CD
+                    pointC = pointD - (s_CD / np.cos(deg)) * g_hat
+
+                    # 快筛1确保时间内可到达（保守下界）
+                    time_lower = reachable_time(pointA, uav_speed_now, pointC, a_max)
+                    if time_lower > to_C:
+                        continue
+
+                    # 快筛2确保并行速度不会超过需求上限
+                    required_uav_along_speed = speed_target + v_imp
+                    if v_max is not None and required_uav_along_speed > v_max + 1e-6:
+                        continue
+
+                    # 快筛3取保平均加速度不会超过上限
+                    avg_acc_required = (required_uav_along_speed - uav_speed_along_track_now) / max(to_C, 1e-3)
+                    if a_max is not None and avg_acc_required > a_max + 1e-6:
+                        continue
+
+                    # 判断斜角，初段斜角应该大于拉飘段的斜角
+                    vec_now_to_C = pointC - pointA
+                    if np.linalg.norm(vec_now_to_C) < 1e-6:
+                        continue
+
+                    angle_now_to_C_deg = float(
+                        np.rad2deg(np.arccos(
+                            np.clip(np.dot(to_unit(vec_now_to_C), s_hat), -1.0, 1.0)
+                        ))
+                    )
+                    if angle_now_to_C_deg < alpha_large_min_deg:
+                        continue
+
+                    dist_from_rear = distance_aim
+                    dist_to_front = linear_spacing - distance_aim  #
+                    if not (dist_to_front <= max_dist_to_front + 1e-6 and
+                            dist_from_rear >= linear_spacing * rear_frac_min - 1e-6):
+                        continue
+
+                    # 评分：更早到 C 优先；其次更省力；再次末段斜角更小
+                    score = (to_C, abs(avg_acc_required), deg_small)
+                    if score < best_score:
+                        best_score = score
+                        best_tuple = (pointC, pointD, pAim_axis,
+                                      to_C, to_CD, v_imp,
+                                      deg_small, avg_acc_required,
+                                      dist_to_front, dist_from_rear, linear_spacing,
+                                      angle_now_to_C_deg)
+    if best_tuple is None:
+        return None
+
+    # 打包输出，转回dms
+
+    (pointC, pointD, pAim_axis,
+     to_C, to_CD, v_imp,
+     alpha_deg_small, avg_acc_required,
+     dist_to_front, dist_from_rear, linear_spacing,
+     angle_now_to_C_deg) = best_tuple
+
+
+    B_lat, B_lon, B_alt = converter.local_to_geodetic_dms(pointC)
+    D_lat, D_lon, D_alt = converter.local_to_geodetic_dms(pointD)
+    Aim_lat, Aim_lon, Aim_alt = converter.local_to_geodetic_dms(pAim_axis)
+
+
+    return ObliqueBPointResult(
+        pB_local = pointC,
+        pWing_local = pointD,
+        pAim_local = pAim_axis,
+        B_dms = (B_lat, B_lon, B_alt),
+        Wing_dms = (D_lat, D_lon, D_alt),
+        Aim_dms=(Aim_lat, Aim_lon, Aim_alt),
+        tC = float(to_C),
+        t_CD = float(to_CD),
+        v_imp = float(v_imp),
+        alpha_small_deg = float(alpha_deg_small),
+        avg_acc_required = float(avg_acc_required),
+        dist_aim_to_front = float(dist_to_front),
+        dist_aim_from_rear = float(dist_from_rear),
+        spacing_front_rear = float(linear_spacing),
+        angle_now_to_C_deg = float(angle_now_to_C_deg),
+        notes="尾后斜向（仅下劈）：B≡C；末段小斜角；对准点落在前/后机之间且满足 ≤45m 与 ≥间距1/3。"
+    )
+
+
+
+# ----------------- construct a small test -----------------
+
+# Enemy/own centers (DMS strings) — roughly ~7–8 km apart
+own_center   = ['125:24:00.00E','26:37:00.00N','5000.00']
+enemy_center = ['125:28:00.00E','26:38:00.00N','5650.00']
+
+converter, R_local_to_ENU, R_ENU_to_local = build_global_converter(own_center, enemy_center)
+
+def place_uav_behind_target(converter, R_ENU_to_local, target_point, target_course_deg, back_distance_m=600.0):
+    target_local = dms_to_local(converter, target_point)
+    s_hat = to_unit(R_ENU_to_local @ (bearing_to_enu_unit(target_course_deg) * 1.0))
+    uav_local = target_local - back_distance_m * s_hat
+    u_lat, u_lon, u_alt = converter.local_to_geodetic_dms(uav_local)
+    return [u_lon, u_lat, u_alt]
+# One UAV & one target sample
+
+target_point = ['125:28:32.08E','26:37:59.28N','5658.62']
+uav_point = place_uav_behind_target(converter, R_ENU_to_local, target_point, target_course_deg=45.0, back_distance_m=1600.0)
+
+# Speeds & courses (m/s & degrees, North=0 clockwise)
+uav_speed = 240.0
+uav_course_deg = 45.0
+target_speed = 240.0
+target_course_deg = 45.0
+
+# Wing half (full wingspan/2). We will offset by 0.5*wing_half to hit mid of half-wing per user.
+wing_half = 14.0  # meters
+
+# Constraints
+to_C_window = (1.0, 2.0)
+to_CD_window = (3.0, 5.0)
+speed_range = (10.0, 15.0)
+a_max = 80     # m/s^2 avg along-track cap
+v_max = 500.0   # m/s speed cap
+
+res2 = find_single_uav_B_point(
+    converter, R_ENU_to_local,
+    uav_point, target_point,
+    wing_half,
+    uav_speed, uav_course_deg,
+    target_speed, target_course_deg,
+    lateral='right',
+    to_C_window=(1.0, 2.0),
+    to_CD_window=(3.5, 4.5),
+    speed_range=(10.0, 15.0),
+    a_max=12.0, v_max=330.0,
+    grid=(21, 7, 7)
+)
+
+print("=== Test Result (tuned geometry) ===")
+print("UAV start (DMS):", uav_point)
+if res2 is None:
+    print("No feasible B point under given constraints.")
+else:
+    print(f"B(C) point DMS:  {res2.B_dms}")
+    print(f"Wing D point DMS:{res2.Wing_dms}")
+    print(f"tC={res2.tC:.3f}s,  t_CD={res2.t_CD:.3f}s,  v_imp={res2.v_imp:.2f} m/s,  avg_acc={res2.need_avg_acc:.2f} m/s^2")
+    s_CD = res2.v_imp * res2.t_CD
+    print(f"Along-track C->D distance ≈ {s_CD:.2f} m")
 
 
 
