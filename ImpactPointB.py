@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import numpy as np
 import GeodeticConverter as GC
+from typing import Optional, List, Tuple, Dict, Any
 
 
 # 求dms坐标直接转化为degree的经度纬度高度
@@ -350,15 +351,150 @@ def upfind_single_uav_B_point(converter, R_ENU_to_local, uav_point, target_point
         notes="尾后斜向（仅下劈）：B≡C；末段小斜角；对准点落在前/后机之间且满足 ≤45m 与 ≥间距1/3。"
     )
 
+def rear_dms_if_missing(
+    converter, R_ENU_to_local,
+    front_dms_list,
+    enemy_course_deg: float,
+    rear_spacing_m: float = 90.0
+) -> List[tuple]:
+
+    # 因为敌机后方无人机不好去匹配其dms且最后一排没有后方无人机，就根据间距去算一个后方敌机的位置
+    s_hat = to_unit(R_ENU_to_local @ (bearing_to_enu_unit(enemy_course_deg) * 1.0))
+    outs = []
+    for f in front_dms_list:
+        pF = dms_to_local(converter, f)
+        pR = pF - float(rear_spacing_m) * s_hat
+        outs.append(converter.local_to_geodetic_dms(pR))
+    return outs
+
+# 一对一地进行撞机，需要给出撞击类型
+def assign_by_index_simple(
+    converter, R_ENU_to_local,
+    uav_dms_list,
+    enemy_dms_list,
+    uav_num,
+
+    # 撞击类型：'tail' / 'oblique'
+    impact_type: str = 'tail',
+    lateral: str = 'right',
+
+    # 统一速度/航向
+    uav_speed: float = 90.0,
+    uav_course_deg: float = 270.0,
+    enemy_speed: float = 90.0,
+    enemy_course_deg: float = 270.0,
+
+    # 机翼半长
+    wing_half: float = 8.0,
+
+    # 敌群间距
+    rear_spacing_m: float = 90.0,
+    # 动力学包线
+    a_max: float = 80,
+    v_max: float = 500,
+
+    # 直线（尾后）窗口
+    to_C_window_tail=(3.0, 6.0),
+    to_CD_window_tail=(3.0, 5.0),
+    vimp_range_tail=(10.0, 15.0),
+    grid_tail=(21, 9, 7),
+
+    # 斜向窗口
+    to_C_window_obl=(3.0, 6.0),
+    to_CD_window_obl=(3.0, 5.0),
+    vimp_range_obl=(10.0, 15.0),
+    alpha_small_deg_range=(2.0, 8.0),
+    alpha_large_min_deg=15.0,
+    max_dist_to_front=45.0,
+    rear_frac_min=1/3,
+    grid_obl=(15, 7, 5, 5),
+) -> List[Dict[str, Any]]:
+
+
+    # impact_type 统一展开为列表
+    if isinstance(impact_type, str):
+        types = [impact_type] * uav_num
+    else:
+        types = impact_type
+        assert len(types) >= n, "impact_type 列表长度不足"
+
+    # 斜向需要后方无人机的坐标或者说距离，直接生成
+    rear_dms_list = rear_dms_if_missing(
+        converter, R_ENU_to_local,
+        enemy_dms_list, enemy_course_deg,
+        rear_spacing_m
+    )
+
+    outs: List[Dict[str, Any]] = []
+    for i in range(uav_num):
+        method = str(types[i]).lower()
+        res = None
+        reason = None
+
+        try:
+            if method in ('tail', 'straight', 'rear', '尾后', '直线'):
+                # —— 尾后正向（B≡C）——
+                res = find_single_uav_B_point(
+                    converter, R_ENU_to_local,
+                    uav_point=uav_dms_list[i], target_point=enemy_dms_list[i],
+                    wing_half=wing_half, lateral=lateral,
+                    uav_speed=uav_speed, uav_course_deg=uav_course_deg,
+                    target_speed=enemy_speed, target_course_deg=enemy_course_deg,
+                    to_C_window=to_C_window_tail,
+                    to_CD_window=to_CD_window_tail,
+                    speed_range=vimp_range_tail,   # 直线版参数名是 speed_range
+                    a_max=a_max, v_max=v_max,
+                    grid=grid_tail
+                )
+                used_method = 'tail'
+
+            elif method in ('oblique', 'slant', '尾后斜后方', '斜向'):
+                # —— 尾后斜向（仅下劈）——
+                res = upfind_single_uav_B_point(
+                    converter, R_ENU_to_local,
+                    uav_point=uav_dms_list[i],
+                    target_point=enemy_dms_list[i],
+                    rear_point=rear_dms_list[i],
+                    uav_speed=uav_speed, uav_course_deg=uav_course_deg,
+                    target_speed=enemy_speed, target_course_deg=enemy_course_deg,
+                    wing_half=wing_half, lateral=lateral,
+                    rear_speed=enemy_speed, rear_course_deg=enemy_course_deg,
+                    to_C_window=to_C_window_obl,
+                    to_CD_window=to_CD_window_obl,
+                    v_imp_range=vimp_range_obl,            # 斜向版参数名是 v_imp_range
+                    alpha_small_deg_range=alpha_small_deg_range,
+                    alpha_large_min_deg=alpha_large_min_deg,
+                    a_max=a_max, v_max=v_max,
+                    max_dist_to_front=max_dist_to_front,
+                    rear_frac_min=rear_frac_min,
+                    grid=grid_obl
+                )
+                used_method = 'oblique'
+            else:
+                used_method = 'none'
+                reason = f"未知撞机类型: {types[i]}（应为'tail'或'oblique'）"
+
+        except Exception as ex:
+            used_method = 'none'
+            reason = f"调用异常: {ex}"
+
+        if res is None and reason is None:
+            reason = "无可行解（多半是到C（B）的时间可达性或对准点区间未满足）"
+
+        outs.append({
+            'idx': i,
+            'method': used_method if res is not None else 'none',
+            'result': res,         # 若直线：SingleBPointResult；斜向：ObliqueBPointResult
+            'reason': reason       # 无解时的原因提示
+        })
+
+    return outs
 
 
 # =========================================
-# Demo：两类 B 点求解的最小可运行测例
-# 依赖：build_global_converter / dms_to_local / bearing_to_enu_unit /
-#      find_single_uav_B_point / upfind_single_uav_B_point
+# Demo：两类B点求解的最小可运行测例
 # =========================================
 
-# —— 通用的小工具，仅做美化输出 ——
 def _line():
     print("-" * 72)
 
@@ -396,7 +532,7 @@ def demo_tail_straight():
     enemy_center = ['125:28:00.00E','26:38:00.00N','5650.00']
     converter, R_local_to_ENU, R_ENU_to_local = build_global_converter(own_center, enemy_center)
 
-    # —— 目标点与我机放置（我机在目标后方 40 m） ——
+    # —— 目标点与我机放置（我机在目标后方50 m） ——
     target_dms   = ['125:28:32.08E','26:37:59.28N','5658.62']
     course_deg   = 270.0
     v_tgt, v_uav = 60.0, 90.0
@@ -406,7 +542,7 @@ def demo_tail_straight():
     uav_dms = converter.local_to_geodetic_dms(pA0)
     print("用向量得到的uav_dms:", uav_dms)
 
-    # —— 调用（1–2 s 到 C；3–3.5 s 末段；12–15 m/s 相对闭合） ——
+    # —— 调用（5–6s到C点，撞机：3–3.5s 末段：12–15 m/s相对闭合） ——
     res = find_single_uav_B_point(
         converter, R_ENU_to_local,
         uav_point=uav_dms, target_point=target_dms,
@@ -430,7 +566,7 @@ def demo_tail_oblique():
     enemy_center = ['125:28:00.00E','26:38:00.00N','5650.00']
     converter, R_local_to_ENU, R_ENU_to_local = build_global_converter(own_center, enemy_center)
 
-    # —— 前/后机、我机初始（前后间距 ~90 m；我机后方 40 m、上方 60 m） ——
+    # —— 前/后机、我机初始（前后间距100m；我机后方40 m、上方60 m） ——
     front_dms  = ['125:28:32.08E','26:37:59.28N','5658.62']
     course_deg = 270.0
     v_front, v_uav = 40.0, 90.0
