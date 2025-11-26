@@ -2,10 +2,12 @@
 
 ## 概述
 
-`unified_interface.py` 是一个统一的Flask接口，整合了三个算法模块：
-- **impact**（撞击算法）- ImpactPointB
-- **interference**（干扰算法）- InterferencePointC
-- **drop_bombs**（投弹算法）- Drop_bombs9
+`unified_interface.py` 是一个统一的Flask接口，整合了五个算法模块：
+- **impact**（撞击算法）- Impact
+- **interference**（干扰算法）- Interference
+- **dropbombs**（投弹算法）- Dropbombs
+- **formation**（阵型生成算法）- Formation
+- **turning**（转弯算法）- Turnning
 
 ## 启动服务
 
@@ -108,8 +110,16 @@ python unified_interface.py
 - **功能**: 直接调用干扰算法（无需指定algorithm_type）
 
 #### 4.3 投弹算法
-- **URL**: `POST http://localhost:5000/drop_bombs`
+- **URL**: `POST http://localhost:5000/dropbombs`
 - **功能**: 直接调用投弹算法（无需指定algorithm_type）
+
+#### 4.4 阵型生成算法
+- **URL**: `POST http://localhost:5000/formation`
+- **功能**: 直接调用阵型生成算法（无需指定algorithm_type）
+
+#### 4.5 转弯算法
+- **URL**: `POST http://localhost:5000/turning`
+- **功能**: 直接调用转弯算法（无需指定algorithm_type）
 
 **请求示例**（无需algorithm_type）：
 ```json
@@ -148,7 +158,7 @@ python unified_interface.py
 }
 ```
 
-4. **切换算法**：只需修改 `algorithm_type` 为 `"impact"` 或 `"drop_bombs"`
+4. **切换算法**：只需修改 `algorithm_type` 为 `"impact"`, `"interference"`, `"dropbombs"`, `"formation"`, 或 `"turning"`
 
 ---
 
@@ -168,8 +178,20 @@ Body: { 干扰算法的config参数 }
 
 **投弹算法**：
 ```
-POST http://localhost:5000/drop_bombs
+POST http://localhost:5000/dropbombs
 Body: { 投弹算法的config参数 }
+```
+
+**阵型生成算法**：
+```
+POST http://localhost:5000/formation
+Body: { 阵型生成算法的config参数 }
+```
+
+**转弯算法**：
+```
+POST http://localhost:5000/turning
+Body: { 转弯算法的config参数 }
 ```
 
 ---
@@ -244,12 +266,44 @@ POST http://localhost:5000/impact
 ### 测试3：投弹算法
 
 ```json
-POST http://localhost:5000/drop_bombs
+POST http://localhost:5000/dropbombs
 
 {
   "enemy_dms": [...],
   "uav_center": [...],
   ...投弹算法特有参数
+}
+```
+
+---
+
+### 测试4：阵型生成算法
+
+```json
+POST http://localhost:5000/formation
+
+{
+  "algorithm_type": "formation",
+  "center_dms": ["116:00:00.00E", "40:00:00.00N", "1000.0"],
+  "total_planes": 100,
+  "layers": 3,
+  "rows_per_layer": 5,
+  "lateral_spacing_m": 500,
+  "longitudinal_spacing_m": 800,
+  "layer_height_delta": 300
+}
+```
+
+---
+
+### 测试5：转弯算法
+
+```json
+POST http://localhost:5000/turning
+
+{
+  "algorithm_type": "turning",
+  ...转弯算法特有参数
 }
 ```
 
@@ -264,7 +318,7 @@ POST http://localhost:5000/drop_bombs
   "message": "config 中缺少 algorithm_type 字段"
 }
 ```
-**解决**：在config中添加 `"algorithm_type": "impact/interference/drop_bombs"`
+**解决**：在config中添加 `"algorithm_type": "impact/interference/dropbombs/formation/turning"`
 
 ### 常见错误2：不支持的算法类型
 ```json
@@ -290,9 +344,9 @@ POST http://localhost:5000/drop_bombs
 
 | 特性 | 统一接口 | 分散接口 |
 |------|---------|---------|
-| URL数量 | 1个 (`/execute`) | 3个 |
+| URL数量 | 1个 (`/execute`) | 5个 |
 | 切换算法 | 修改 `algorithm_type` | 修改URL |
-| Postman管理 | 1个请求 | 3个请求 |
+| Postman管理 | 1个请求 | 5个请求 |
 | 推荐场景 | 频繁切换算法 | 固定使用某个算法 |
 
 ---
@@ -308,24 +362,28 @@ POST http://localhost:5000/drop_bombs
 
 ## 迁移指南（从旧接口迁移）
 
-### 旧方式（三个不同的接口）：
+### 旧方式（五个不同的接口）：
 ```
-POST http://localhost:5000/impact_main
-POST http://localhost:5000/interference_main
-POST http://localhost:5000/execute_main
+POST http://localhost:5000/...  (Interface_impact)
+POST http://localhost:5000/...  (Interface_interference)
+POST http://localhost:5000/...  (Interface_dropbombs)
+POST http://localhost:5000/...  (Interface_formation)
+POST http://localhost:6000/...  (Interface_turning)
 ```
 
 ### 新方式（统一接口）：
 ```
 POST http://localhost:5000/execute
-Body: { "algorithm_type": "impact/interference/drop_bombs", ... }
+Body: { "algorithm_type": "impact/interference/dropbombs/formation/turning", ... }
 ```
 
 **或使用快捷接口**：
 ```
 POST http://localhost:5000/impact
 POST http://localhost:5000/interference
-POST http://localhost:5000/drop_bombs
+POST http://localhost:5000/dropbombs
+POST http://localhost:5000/formation
+POST http://localhost:5000/turning
 ```
 
 ---
@@ -361,7 +419,7 @@ A：返回的JSON中包含 `traceback` 字段，显示完整的错误堆栈。
 
 统一接口让你可以：
 - ✅ **一个URL调用所有算法**
-- ✅ **Postman管理更简单**（1个请求 vs 3个请求）
+- ✅ **Postman管理更简单**（1个请求 vs 5个请求）
 - ✅ **代码更易维护**（集中管理）
 - ✅ **灵活切换算法**（修改参数即可）
 - ✅ **保留快捷方式**（专用路由仍可用）

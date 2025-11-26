@@ -5,7 +5,7 @@ import numpy as np
 from flask import Flask, request, jsonify
 from werkzeug.exceptions import BadRequest
 
-import ImpactPointB as TO  # 你的算法主模块
+import Impact as TO  # 你的算法主模块
 
 app = Flask(__name__)
 

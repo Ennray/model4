@@ -5,7 +5,7 @@ import numpy as np
 from flask import Flask, request, jsonify
 from werkzeug.exceptions import BadRequest
 
-import Drop_bombs9 as TO  # 你的算法主模块
+import Dropbombs as TO  # 你的算法主模块
 
 app = Flask(__name__)
 

@@ -1,7 +1,3 @@
-"""
-统一算法接口
-支持三种算法：impact（撞击）、interference（干扰）、drop_bombs（投弹）
-"""
 import json
 from typing import Any, Dict
 
@@ -9,10 +5,12 @@ import numpy as np
 from flask import Flask, request, jsonify
 from werkzeug.exceptions import BadRequest
 
-# 导入三个算法模块
-import ImpactPointB
-import InterferencePointC
-import Drop_bombs9
+# 导入五个算法模块
+import Impact
+import Interference
+import Dropbombs
+import Formation
+import Turnning
 
 app = Flask(__name__)
 
@@ -45,9 +43,11 @@ CURRENT_CONFIG: Dict[str, Any] | None = None
 
 # 算法映射字典
 ALGORITHM_MODULES = {
-    "impact": ImpactPointB,
-    "interference": InterferencePointC,
-    "drop_bombs": Drop_bombs9,
+    "impact": Impact,
+    "interference": Interference,
+    "dropbombs": Dropbombs,
+    "formation": Formation,
+    "turning": Turnning,
 }
 
 
@@ -58,18 +58,19 @@ def index():
     """
     return jsonify({
         "service": "统一算法接口",
-        "version": "1.0.0",
         "algorithms": list(ALGORITHM_MODULES.keys()),
         "endpoints": {
-            "/set_config": "POST - 设置全局配置（可选）",
-            "/execute": "POST - 执行算法（推荐）",
+            "/set_config": "POST - 设置全局配置（基本上用不上）",
+            "/execute": "POST - 执行算法（全局入口）",
             "/impact": "POST - 执行撞击算法",
             "/interference": "POST - 执行干扰算法",
-            "/drop_bombs": "POST - 执行投弹算法",
+            "/dropbombs": "POST - 执行投弹算法",
+            "/formation": "POST - 执行阵型生成算法",
+            "/turning": "POST - 执行转弯算法",
         },
         "usage": {
             "method1": "在config中指定algorithm_type",
-            "method2": "使用专用路由（/impact, /interference, /drop_bombs）"
+            "method2": "使用专用路由（/impact, /interference, /dropbombs, /formation, /turning）"
         }
     }), 200
 
@@ -114,7 +115,7 @@ def execute():
     """
     统一执行接口（推荐使用）：
       - 根据 config 中的 algorithm_type 字段选择算法
-      - 支持的算法类型：impact, interference, drop_bombs
+      - 支持的算法类型：impact, interference, dropbombs, formation, turning
       - 如果本次请求里带了 config，就用本次的；
       - 否则尝试使用之前 /set_config 存下来的 CURRENT_CONFIG。
     """
@@ -139,7 +140,7 @@ def execute():
         # 获取算法类型
         algorithm_type = config.get("algorithm_type")
         if not algorithm_type:
-            raise BadRequest("config 中缺少 algorithm_type 字段。支持的类型: impact, interference, drop_bombs")
+            raise BadRequest("config 中缺少 algorithm_type 字段。支持的类型: impact, interference, dropbombs, formation, turning")
 
         # 选择对应的算法模块
         if algorithm_type not in ALGORITHM_MODULES:
@@ -195,7 +196,23 @@ def execute_drop_bombs():
     """
     投弹算法专用接口（快捷方式）
     """
-    return _execute_algorithm("drop_bombs")
+    return _execute_algorithm("dropbombs")
+
+
+@app.route("/formation", methods=["POST"])
+def execute_formation():
+    """
+    阵型生成算法专用接口（快捷方式）
+    """
+    return _execute_algorithm("formation")
+
+
+@app.route("/turning", methods=["POST"])
+def execute_turning():
+    """
+    转弯算法专用接口（快捷方式）
+    """
+    return _execute_algorithm("turning")
 
 
 def _execute_algorithm(algorithm_type: str):
@@ -250,8 +267,7 @@ def _execute_algorithm(algorithm_type: str):
 if __name__ == "__main__":
     # 统一端口 5000
     print("=" * 60)
-    print("统一算法接口启动中...")
-    print("支持的算法: impact, interference, drop_bombs")
+    print("支持的算法: impact, interference, dropbombs, formation, turning")
     print("访问 http://localhost:5000/ 查看接口说明")
     print("=" * 60)
     app.run(host="0.0.0.0", port=5000, debug=True)
