@@ -11,6 +11,8 @@ import Interference
 import Dropbombs
 import Formation
 import Turnning
+import RetreatImpact
+import RetreatDropbombs
 
 app = Flask(__name__)
 
@@ -48,6 +50,8 @@ ALGORITHM_MODULES = {
     "dropbombs": Dropbombs,
     "formation": Formation,
     "turning": Turnning,
+    "retreatimpact": RetreatImpact,
+    "retreatdropbombs": RetreatDropbombs,
 }
 
 
@@ -67,10 +71,12 @@ def index():
             "/dropbombs": "POST - 执行投弹算法",
             "/formation": "POST - 执行阵型生成算法",
             "/turning": "POST - 执行转弯算法",
+            "/retreatimpact": "POST - 执行撞击撤退算法",
+            "/retreatdropbombs": "POST - 执行投弹撤退算法",
         },
         "usage": {
             "method1": "在config中指定algorithm_type",
-            "method2": "使用专用路由（/impact, /interference, /dropbombs, /formation, /turning）"
+            "method2": "使用专用路由（/impact, /interference, /dropbombs, /formation, /turning, /retreatimpact, /retreatdropbombs）"
         }
     }), 200
 
@@ -178,7 +184,7 @@ def execute():
 @app.route("/impact", methods=["POST"])
 def execute_impact():
     """
-    撞击算法专用接口（快捷方式）
+    撞击算法专用接口
     """
     return _execute_algorithm("impact")
 
@@ -186,7 +192,7 @@ def execute_impact():
 @app.route("/interference", methods=["POST"])
 def execute_interference():
     """
-    干扰算法专用接口（快捷方式）
+    干扰算法专用接口
     """
     return _execute_algorithm("interference")
 
@@ -194,7 +200,7 @@ def execute_interference():
 @app.route("/dropbombs", methods=["POST"])
 def execute_drop_bombs():
     """
-    投弹算法专用接口（快捷方式）
+    投弹算法专用接口
     """
     return _execute_algorithm("dropbombs")
 
@@ -202,7 +208,7 @@ def execute_drop_bombs():
 @app.route("/formation", methods=["POST"])
 def execute_formation():
     """
-    阵型生成算法专用接口（快捷方式）
+    阵型生成算法专用接口
     """
     return _execute_algorithm("formation")
 
@@ -210,9 +216,25 @@ def execute_formation():
 @app.route("/turning", methods=["POST"])
 def execute_turning():
     """
-    转弯算法专用接口（快捷方式）
+    转弯算法专用接口
     """
     return _execute_algorithm("turning")
+
+
+@app.route("/retreatimpact",methods=["POST"])
+def execute_retreatimpact():
+    """
+    撞击后撤退算法专用接口
+    """
+    return _execute_algorithm("retreatimpact")
+
+
+@app.route("/retreatdropbombs", methods=["POST"])
+def execute_retreatdropbombs():
+    """
+    投弹后撤退算法专用接口
+    """
+    return _execute_algorithm("retreatdropbombs")
 
 
 def _execute_algorithm(algorithm_type: str):
@@ -267,7 +289,7 @@ def _execute_algorithm(algorithm_type: str):
 if __name__ == "__main__":
     # 统一端口 5000
     print("=" * 60)
-    print("支持的算法: impact, interference, dropbombs, formation, turning")
+    print("支持的算法: impact, interference, dropbombs, formation, turning, retreatimpact, retreatdropbombs")
     print("访问 http://localhost:5000/ 查看接口说明")
     print("=" * 60)
     app.run(host="0.0.0.0", port=5000, debug=True)
